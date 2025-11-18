@@ -29,7 +29,7 @@ class ImageGenerator:
                 f"Please run scripts/download_models.py first to download the model."
             )
         
-        use_memory_efficient = self.model_config.get("use_memory_efficient", True)
+        use_memory_efficient = self.model_config.get("use_memory_efficient", False)
         
         self.pipeline = DiffusionPipeline.from_pretrained(
             self.model_config["local_path"],
@@ -38,15 +38,17 @@ class ImageGenerator:
         )
         
         if use_memory_efficient:
-            print("Enabling memory-efficient optimizations...")
+            print("Enabling memory-efficient optimizations (slower but uses less VRAM)...")
             self.pipeline.enable_model_cpu_offload()
             self.pipeline.enable_vae_slicing()
-            self.pipeline.enable_attention_slicing(1)
+            self.pipeline.enable_attention_slicing(2)
             if hasattr(self.pipeline, 'enable_vae_tiling'):
                 self.pipeline.enable_vae_tiling()
             print("Memory optimizations enabled!")
         else:
+            print("Loading model to GPU for maximum speed...")
             self.pipeline = self.pipeline.to(self.device)
+            self.pipeline.enable_attention_slicing(2)
         
         print("Model loaded successfully!")
     

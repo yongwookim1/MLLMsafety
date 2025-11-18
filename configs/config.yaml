@@ -6,7 +6,7 @@ models:
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
     torch_dtype: "bfloat16"  # bfloat16 or float16
-    use_memory_efficient: true  # Enable CPU offload and memory optimizations
+    use_memory_efficient: false  # false = faster (GPU), true = slower but uses less VRAM (CPU offload)
   
   evaluator:
     # Qwen2.5-VL models: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct

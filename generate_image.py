@@ -6,10 +6,11 @@ from typing import Optional
 
 
 class QwenImageGenerator:
-    def __init__(self, model_path: str = "./models_cache/qwen-image", use_cuda: bool = True):
+    def __init__(self, model_path: str = "./models_cache/qwen-image", use_cuda: bool = True, use_memory_efficient: bool = False):
         self.model_path = os.path.abspath(model_path)
         self.device = "cuda:0" if use_cuda and torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.bfloat16
+        self.use_memory_efficient = use_memory_efficient
         self.pipeline = None
         self._load_model()
     
@@ -28,12 +29,17 @@ class QwenImageGenerator:
             local_files_only=True
         )
         
-        print("Enabling memory-efficient optimizations...")
-        self.pipeline.enable_model_cpu_offload()
-        self.pipeline.enable_vae_slicing()
-        self.pipeline.enable_attention_slicing(1)
-        if hasattr(self.pipeline, 'enable_vae_tiling'):
-            self.pipeline.enable_vae_tiling()
+        if self.use_memory_efficient:
+            print("Enabling memory-efficient optimizations (slower but uses less VRAM)...")
+            self.pipeline.enable_model_cpu_offload()
+            self.pipeline.enable_vae_slicing()
+            self.pipeline.enable_attention_slicing(2)
+            if hasattr(self.pipeline, 'enable_vae_tiling'):
+                self.pipeline.enable_vae_tiling()
+        else:
+            print("Loading model to GPU for maximum speed...")
+            self.pipeline = self.pipeline.to(self.device)
+            self.pipeline.enable_attention_slicing(2)
         
         print("Model loaded successfully!")
     
