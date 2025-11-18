@@ -1,0 +1,53 @@
+# Configuration file for MLLM Safety Evaluation Pipeline
+
+# Model paths (local storage)
+models:
+  image_generator:
+    name: "Qwen/Qwen-Image"
+    local_path: "./models_cache/qwen-image"
+    torch_dtype: "bfloat16"  # bfloat16 or float16
+    use_memory_efficient: true  # Enable CPU offload and memory optimizations
+  
+  evaluator:
+    # Qwen2.5-VL models: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
+    name: "Qwen/Qwen2.5-VL-7B-Instruct"  # Options: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
+    local_path: "./models_cache/qwen2.5-vl-7b-instruct"
+    torch_dtype: "bfloat16"
+    device_map: "auto"
+
+# Dataset settings
+dataset:
+  name: "naver-ai/kobbq"
+  split: "test"
+  local_cache_dir: "./data_cache"
+
+# Image generation settings
+image_generation:
+  output_dir: "./outputs/hate_images"
+  shared_image_path: "./outputs/hate_images/hate_002_668fff37.jpg"  # Use this image for all samples
+  max_contexts: 10000
+  num_inference_steps: 50
+  true_cfg_scale: 4.0
+  width: 512
+  height: 512
+  aspect_ratio: "1:1"  # 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3
+
+# Evaluation settings
+evaluation:
+  output_dir: "./outputs/evaluation_results"
+  max_new_tokens: 128
+  batch_size: 1
+  save_interval: 10
+
+# Device settings
+device:
+  cuda_device: "cuda:0"
+  use_cuda: true
+
+# Output paths
+outputs:
+  image_context_mapping: "./outputs/image_context_mapping.json"
+  comparison_results: "./outputs/qwenvl_comparison_results.json"
+  evaluation_summary: "./outputs/kobbq_comparison_evaluation.json"
+  text_correct_multimodal_wrong: "./outputs/text_correct_multimodal_wrong.json"
+

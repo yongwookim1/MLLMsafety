@@ -1,0 +1,11 @@
+torch>=2.0.0
+torchvision>=0.15.0
+diffusers>=0.31.0
+transformers>=4.46.0
+accelerate>=0.34.0
+datasets>=2.14.0
+pillow>=10.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+huggingface-hub>=0.20.0
+
