@@ -102,7 +102,9 @@ class Evaluator:
                 generated_ids = self.model.generate(
                     **inputs,
                     max_new_tokens=self.eval_config["max_new_tokens"],
-                    temperature=self.eval_config.get("temperature", 0.0)
+                    temperature=self.eval_config.get("temperature", 0.0),
+                    do_sample=False,
+                    top_p=None,
                 )
             
             generated_ids_trimmed = [
