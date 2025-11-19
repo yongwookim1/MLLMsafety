@@ -39,17 +39,41 @@ class KOBBQLoader:
         seen_contexts = set()
         contexts = []
         
+        from collections import defaultdict
+        category_contexts = defaultdict(list)
+        
         for sample in self.dataset:
-            if len(contexts) >= max_contexts:
-                break
-            
             context = sample.get("context", "")
+            category = sample.get("bbq_category", "Unknown")
+            
             if context and context.strip() and context not in seen_contexts:
                 seen_contexts.add(context)
-                contexts.append({
+                category_contexts[category].append({
                     "context": context,
                     "sample_id": sample.get("sample_id", "")
                 })
+        
+        contexts_per_category = max_contexts // len(category_contexts) if category_contexts else max_contexts
+        remaining = max_contexts % len(category_contexts) if category_contexts else 0
+        
+        for category, cat_contexts in category_contexts.items():
+            take_count = min(len(cat_contexts), contexts_per_category + (1 if remaining > 0 else 0))
+            if remaining > 0:
+                remaining -= 1
+            contexts.extend(cat_contexts[:take_count])
+        
+        if len(contexts) < max_contexts:
+            seen_in_balanced = set(c["context"] for c in contexts)
+            for sample in self.dataset:
+                if len(contexts) >= max_contexts:
+                    break
+                context = sample.get("context", "")
+                if context and context.strip() and context not in seen_in_balanced:
+                    seen_in_balanced.add(context)
+                    contexts.append({
+                        "context": context,
+                        "sample_id": sample.get("sample_id", "")
+                    })
         
         return contexts
     

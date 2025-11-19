@@ -1,6 +1,7 @@
 import os
 import sys
 import hashlib
+import json
 from pathlib import Path
 from tqdm import tqdm
 from PIL import Image
@@ -34,10 +35,26 @@ def main():
     gen_config = config["image_generation"]
     output_dir = gen_config["output_dir"]
     max_contexts = gen_config["max_contexts"]
+    output_config = config["outputs"]
+    mapping_file = output_config["image_context_mapping"]
     
     os.makedirs(output_dir, exist_ok=True)
     
-    print(f"\nLoading unique contexts (max: {max_contexts})...")
+    existing_contexts = set()
+    if os.path.exists(mapping_file):
+        print(f"Loading existing image-context mapping from {mapping_file}...")
+        try:
+            with open(mapping_file, "r", encoding="utf-8") as f:
+                mapping = json.load(f)
+                context_to_image = mapping.get("context_to_image", {})
+                for context, image_path in context_to_image.items():
+                    if os.path.exists(image_path):
+                        existing_contexts.add(context)
+                print(f"Found {len(existing_contexts)} existing contexts with images")
+        except Exception as e:
+            print(f"Warning: Failed to load mapping file: {e}")
+    
+    print(f"Loading unique contexts (max: {max_contexts})...")
     contexts = data_loader.get_unique_contexts(max_contexts=max_contexts)
     
     print(f"Total contexts to generate: {len(contexts)}")
@@ -49,6 +66,10 @@ def main():
     for idx, item in enumerate(tqdm(contexts, desc="Generating images")):
         context = item["context"]
         sample_id = item["sample_id"]
+        
+        if context in existing_contexts:
+            skipped_count += 1
+            continue
         
         context_hash = hashlib.md5(context.encode()).hexdigest()[:8]
         safe_sample_id = sample_id.replace("/", "_").replace("\\", "_")
