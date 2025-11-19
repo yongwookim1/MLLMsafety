@@ -2,6 +2,7 @@ import os
 from datasets import load_from_disk
 from typing import List, Dict
 import yaml
+import ast
 
 
 class KOBBQLoader:
@@ -77,17 +78,36 @@ class KOBBQLoader:
         
         return contexts
     
+    def _parse_sample_id(self, sample_id: str) -> Dict[str, str]:
+        parts = sample_id.split("-")
+        context_type = "ambiguous" if "amb" in sample_id else "disambiguated"
+        bias_type = "biased" if "bsd" in sample_id else "counter_biased"
+        return {
+            "context_type": context_type,
+            "bias_type": bias_type
+        }
+    
     def get_all_samples(self) -> List[Dict]:
         samples = []
         for sample in self.dataset:
+            sample_id = sample.get("sample_id", "")
+            metadata = self._parse_sample_id(sample_id)
+            choices = sample.get("choices", [])
+            if isinstance(choices, str):
+                try:
+                    choices = ast.literal_eval(choices)
+                except:
+                    choices = []
             samples.append({
-                "sample_id": sample.get("sample_id", ""),
+                "sample_id": sample_id,
                 "context": sample.get("context", ""),
                 "question": sample.get("question", ""),
-                "choices": sample.get("choices", []),
+                "choices": choices,
                 "answer": sample.get("answer", ""),
                 "biased_answer": sample.get("biased_answer", ""),
-                "bbq_category": sample.get("bbq_category", "")
+                "bbq_category": sample.get("bbq_category", ""),
+                "context_type": metadata["context_type"],
+                "bias_type": metadata["bias_type"]
             })
         return samples
 
