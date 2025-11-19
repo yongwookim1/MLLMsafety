@@ -8,11 +8,24 @@ from typing import Optional
 class QwenImageGenerator:
     def __init__(self, model_path: str = "./models_cache/qwen-image", use_cuda: bool = True, use_memory_efficient: bool = False):
         self.model_path = os.path.abspath(model_path)
-        self.device = "cuda:0" if use_cuda and torch.cuda.is_available() else "cpu"
+        
+        self.device = self.get_empty_device() if use_cuda else "cpu"
+        
         self.torch_dtype = torch.bfloat16
         self.use_memory_efficient = use_memory_efficient
         self.pipeline = None
         self._load_model()
+
+    def get_empty_device(self):
+        if not torch.cuda.is_available(): return "cpu"
+        try:
+            frees = [torch.cuda.mem_get_info(i)[0] for i in range(torch.cuda.device_count())]
+            best_id = frees.index(max(frees))
+            print(f"Auto-selected GPU: cuda:{best_id} (Free: {max(frees)/1024**3:.1f}GB)")
+            return f"cuda:{best_id}"
+        except Exception as e:
+            print(f"GPU auto-select failed: {e}. Defaulting to cuda:0")
+            return "cuda:0"
     
     def _load_model(self):
         if not os.path.exists(self.model_path):
@@ -37,7 +50,7 @@ class QwenImageGenerator:
             if hasattr(self.pipeline, 'enable_vae_tiling'):
                 self.pipeline.enable_vae_tiling()
         else:
-            print("Loading model to GPU for maximum speed...")
+            print(f"Loading model to {self.device} for maximum speed...")
             self.pipeline = self.pipeline.to(self.device)
             self.pipeline.enable_attention_slicing(2)
         
@@ -91,4 +104,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
