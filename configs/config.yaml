@@ -36,6 +36,7 @@ image_generation:
 evaluation:
   output_dir: "./outputs/evaluation_results"
   max_new_tokens: 128
+  temperature: 0.0  # Greedy decoding for reproducibility
   batch_size: 1
   save_interval: 10
 

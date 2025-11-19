@@ -101,7 +101,8 @@ class Evaluator:
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **inputs,
-                    max_new_tokens=self.eval_config["max_new_tokens"]
+                    max_new_tokens=self.eval_config["max_new_tokens"],
+                    temperature=self.eval_config.get("temperature", 0.0)
                 )
             
             generated_ids_trimmed = [
