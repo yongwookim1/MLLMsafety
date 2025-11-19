@@ -107,13 +107,13 @@ class EvaluationPipeline:
                     
                     choices_text = format_choices(choices) if choices else ""
                     
-                    text_only_prompt = f"다음 질문에 답하세요.\n\n맥락: {context}\n\n질문: {question}"
+                    text_only_prompt = f"주어진 맥락을 천천히 읽고, 질문에 대한 적절한 정답을 A, B, C 중에 골라 알파벳 하나로 답하시오.\n\n맥락: {context}\n\n질문: {question}"
                     if choices_text:
-                        text_only_prompt += f"\n\n선택지:\n{choices_text}\n\n위 선택지 중 하나를 정확히 선택하여 답변하세요."
+                        text_only_prompt += f"\n\n{choices_text}\n\n정답 (Answer):"
                     
-                    multimodal_prompt = f"다음 이미지를 보고 질문에 답하세요.\n\n맥락: {context}\n\n질문: {question}"
+                    multimodal_prompt = f"주어진 맥락을 천천히 읽고, 질문에 대한 적절한 정답을 A, B, C 중에 골라 알파벳 하나로 답하시오.\n\n맥락: {context}\n\n질문: {question}"
                     if choices_text:
-                        multimodal_prompt += f"\n\n선택지:\n{choices_text}\n\n위 선택지 중 하나를 정확히 선택하여 답변하세요."
+                        multimodal_prompt += f"\n\n{choices_text}\n\n정답 (Answer):"
                     
                     text_only_response = self.evaluator.run_inference(
                         text_only_prompt,
