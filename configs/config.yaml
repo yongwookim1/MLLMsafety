@@ -3,7 +3,7 @@
 # Model paths (local storage)
 models:
   image_generator:
-    type: "kimchi"  # "qwen-image" or "kimchi"
+    type: "qwen-image"  # "qwen-image" or "kimchi"
     # Qwen-Image settings (when type: "qwen-image")
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
@@ -29,10 +29,10 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/kimchi_images"
+  output_dir: "./outputs/qwen_images"
   # shared_image_path: "./outputs/hate_images/share_image.jpg"  # Use this image for all samples
   max_contexts: 10000
-  num_inference_steps: 50
+  num_inference_steps: 28
   true_cfg_scale: 4.0
   width: 512
   height: 512
