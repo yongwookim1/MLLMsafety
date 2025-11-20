@@ -1,6 +1,7 @@
 import os
 import torch
 from diffusers import DiffusionPipeline
+from transformers import CLIPTextModel, CLIPTokenizer
 from typing import Optional
 import yaml
 
@@ -17,10 +18,17 @@ class ImageGenerator:
         self.device = self.device_config["cuda_device"] if self.device_config["use_cuda"] and torch.cuda.is_available() else "cpu"
         self.torch_dtype = getattr(torch, self.model_config["torch_dtype"])
         
+        self.model_type = self.model_config.get("type", "qwen-image")
         self.pipeline = None
         self._load_model()
     
     def _load_model(self):
+        if self.model_type == "kimchi":
+            self._load_kimchi_model()
+        else:
+            self._load_qwen_model()
+    
+    def _load_qwen_model(self):
         print(f"Loading Qwen-Image model from {self.model_config['local_path']}...")
         
         if not os.path.exists(self.model_config["local_path"]):
@@ -52,6 +60,61 @@ class ImageGenerator:
         
         print("Model loaded successfully!")
     
+    def _load_kimchi_model(self):
+        print("Loading Kimchi model (Stable Diffusion + Korean CLIP + LoRA)...")
+        
+        pretrained_model_path = self.model_config.get("pretrained_model_path", "./models_cache/stable-diffusion-v1-5")
+        lora_path = self.model_config.get("lora_path")
+        clip_model_path = self.model_config.get("clip_model_path", "./models_cache/clip-vit-large-patch14-ko")
+        
+        if not os.path.exists(pretrained_model_path) or not os.path.isdir(pretrained_model_path):
+            raise FileNotFoundError(
+                f"Pretrained model not found at {pretrained_model_path}. "
+                f"Please download Stable Diffusion v1.5 model to this local path."
+            )
+        
+        if not os.path.exists(clip_model_path) or not os.path.isdir(clip_model_path):
+            raise FileNotFoundError(
+                f"CLIP model not found at {clip_model_path}. "
+                f"Please download Korean CLIP model to this local path."
+            )
+        
+        if lora_path and not os.path.exists(lora_path):
+            raise FileNotFoundError(
+                f"LoRA weights not found at {lora_path}. "
+                f"Please check the lora_path in config.yaml."
+            )
+        
+        print(f"Loading Stable Diffusion from {pretrained_model_path}...")
+        self.pipeline = DiffusionPipeline.from_pretrained(
+            pretrained_model_path,
+            torch_dtype=self.torch_dtype,
+            local_files_only=True
+        )
+        
+        print(f"Loading Korean CLIP model from {clip_model_path}...")
+        text_encoder = CLIPTextModel.from_pretrained(
+            clip_model_path,
+            local_files_only=True
+        )
+        text_encoder.to(self.device)
+        tokenizer = CLIPTokenizer.from_pretrained(
+            clip_model_path,
+            local_files_only=True
+        )
+        
+        self.pipeline.text_encoder = text_encoder
+        self.pipeline.tokenizer = tokenizer
+        
+        if lora_path:
+            print(f"Loading LoRA weights from {lora_path}...")
+            self.pipeline.load_lora_weights(lora_path)
+        
+        self.pipeline = self.pipeline.to(self.device)
+        self.pipeline.enable_attention_slicing(2)
+        
+        print("Kimchi model loaded successfully!")
+    
     def generate(self, prompt: str, negative_prompt: str = " ", seed: Optional[int] = None):
         base_width = self.gen_config.get("width", 512)
         base_height = self.gen_config.get("height", 512)
@@ -74,15 +137,23 @@ class ImageGenerator:
             generator = torch.Generator(device=self.device).manual_seed(seed)
         
         device_type = "cuda" if "cuda" in self.device else "cpu"
-        with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
-            image = self.pipeline(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                width=width,
-                height=height,
-                num_inference_steps=self.gen_config["num_inference_steps"],
-                true_cfg_scale=self.gen_config["true_cfg_scale"],
-                generator=generator
-            ).images[0]
+        
+        if self.model_type == "kimchi":
+            with torch.autocast(device_type=device_type):
+                image = self.pipeline(
+                    prompt,
+                    num_inference_steps=self.gen_config["num_inference_steps"]
+                ).images[0]
+        else:
+            with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                image = self.pipeline(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=self.gen_config["num_inference_steps"],
+                    true_cfg_scale=self.gen_config["true_cfg_scale"],
+                    generator=generator
+                ).images[0]
         
         return image

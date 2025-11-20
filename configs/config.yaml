@@ -3,10 +3,16 @@
 # Model paths (local storage)
 models:
   image_generator:
+    type: "kimchi"  # "qwen-image" or "kimchi"
+    # Qwen-Image settings (when type: "qwen-image")
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
     torch_dtype: "bfloat16"  # bfloat16 or float16
     use_memory_efficient: false  # false = faster (GPU), true = slower but uses less VRAM (CPU offload)
+    # Kimchi settings (when type: "kimchi")
+    pretrained_model_path: "./models_cache/stable-diffusion-v1-5"  # Stable Diffusion v1.5 local path (required)
+    clip_model_path: "./models_cache/clip-vit-large-patch14-ko"  # Korean CLIP model local path (required)
+    lora_path: "./models_cache/kimchi-lora/pytorch_lora_weights.safetensors"  # LoRA weights path (required)
   
   evaluator:
     # Qwen2.5-VL models: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
