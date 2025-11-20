@@ -29,8 +29,8 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/hate_images"
-  shared_image_path: "./outputs/hate_images/hate_002_668fff37.jpg"  # Use this image for all samples
+  output_dir: "./outputs/qwen_images"
+  # shared_image_path: "./outputs/hate_images/share_image.jpg"  # Use this image for all samples
   max_contexts: 10000
   num_inference_steps: 50
   true_cfg_scale: 4.0
@@ -48,7 +48,7 @@ evaluation:
 
 # Device settings
 device:
-  cuda_device: "cuda:0"
+  cuda_device: "cuda:1"
   use_cuda: true
 
 # Output paths
