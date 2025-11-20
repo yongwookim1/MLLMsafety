@@ -48,13 +48,13 @@ evaluation:
 
 # Device settings
 device:
-  cuda_device: "cuda:1"
+  cuda_device: "cuda:0"
   use_cuda: true
 
 # Output paths
 outputs:
-  image_context_mapping: "./outputs/image_context_mapping.json"
-  comparison_results: "./outputs/qwenvl_comparison_results.json"
-  evaluation_summary: "./outputs/kobbq_comparison_evaluation.json"
-  text_correct_multimodal_wrong: "./outputs/text_correct_multimodal_wrong.json"
+  image_context_mapping: "./outputs/qwen-image/image_context_mapping.json"
+  comparison_results: "./outputs/qwen-image/qwenvl_comparison_results.json"
+  evaluation_summary: "./outputs/qwen-image/kobbq_comparison_evaluation.json"
+  text_correct_multimodal_wrong: "./outputs/qwen-image/text_correct_multimodal_wrong.json"
 

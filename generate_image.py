@@ -62,7 +62,7 @@ class QwenImageGenerator:
         negative_prompt: str = " ",
         width: int = 512,
         height: int = 512,
-        num_inference_steps: int = 50,
+        num_inference_steps: int = 28,
         true_cfg_scale: float = 4.0,
         seed: Optional[int] = None
     ) -> Image.Image:
