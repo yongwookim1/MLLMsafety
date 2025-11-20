@@ -29,7 +29,7 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/qwen_images"
+  output_dir: "./outputs/kimchi_images"
   # shared_image_path: "./outputs/hate_images/share_image.jpg"  # Use this image for all samples
   max_contexts: 10000
   num_inference_steps: 50

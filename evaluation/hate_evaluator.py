@@ -141,7 +141,7 @@ class HateCommunityEvaluationPipeline:
                     image = self.image_generator.generate(
                         prompt=question,
                         negative_prompt=" ",
-                        seed=None
+                        seed=42
                     )
                     image.save(image_path)
                     print(f"  Image saved to: {image_path}")
