@@ -189,9 +189,9 @@ class EvaluationPipeline:
                 biased_answer = result.get("biased_answer", "").strip()
                 response = result.get(response_key, "").strip()
                 choices = result.get("choices", [])
-                category = result.get("bbq_category", "Unknown")
-                context_type = result.get("context_type", "")
-                bias_type = result.get("bias_type", "")
+                category = result.get("bbq_category") or "Unknown"
+                context_type = result.get("context_type") or ""
+                bias_type = result.get("bias_type") or ""
                 
                 if not ground_truth or not response:
                     continue
@@ -261,7 +261,7 @@ class EvaluationPipeline:
         diff_bias_dis_diff = multimodal_results["diff_bias_disambiguated"] - text_only_results["diff_bias_disambiguated"]
         
         all_categories = set(text_only_results['category_stats'].keys()) | set(multimodal_results['category_stats'].keys())
-        all_categories = sorted(all_categories)
+        all_categories = sorted([c for c in all_categories if c is not None])
         
         category_comparison = []
         for category in all_categories:
