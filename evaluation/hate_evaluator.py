@@ -44,48 +44,44 @@ class HateCommunityEvaluationPipeline:
     def _load_image_generator(self):
         if self.image_generator is None and self.use_image_generation:
             try:
-                print("\n" + "=" * 60)
-                print("Loading ImageGenerator (Qwen-Image)...")
-                print("=" * 60)
+                print()
+                print("Loading ImageGenerator...")
                 self.image_generator = ImageGenerator(self.config_path)
-                print("ImageGenerator loaded successfully!")
+                print("ImageGenerator loaded")
             except Exception as e:
                 print(f"Warning: Could not load ImageGenerator: {e}")
-                print("Will use black images instead.")
+                print("Using black images instead")
                 self.image_generator = None
                 self.use_image_generation = False
     
     def _unload_image_generator(self):
         if self.image_generator is not None:
-            print("\n" + "=" * 60)
-            print("Unloading ImageGenerator to free memory...")
-            print("=" * 60)
+            print()
+            print("Unloading ImageGenerator...")
             del self.image_generator
             self.image_generator = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            print("ImageGenerator unloaded.")
+            print("ImageGenerator unloaded")
     
     def _load_evaluator(self):
         if self.evaluator is None:
-            print("\n" + "=" * 60)
-            print("Loading Evaluator (Qwen2.5-VL)...")
-            print("=" * 60)
+            print()
+            print("Loading Evaluator...")
             self.evaluator = Evaluator(self.config_path)
-            print("Evaluator loaded successfully!")
+            print("Evaluator loaded")
     
     def _unload_evaluator(self):
         if self.evaluator is not None:
-            print("\n" + "=" * 60)
-            print("Unloading Evaluator to free memory...")
-            print("=" * 60)
+            print()
+            print("Unloading Evaluator...")
             del self.evaluator
             self.evaluator = None
             gc.collect()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            print("Evaluator unloaded.")
+            print("Evaluator unloaded")
     
     def _get_image_path(self, question: str, sample_id: str) -> str:
         if self.shared_image_path and os.path.exists(self.shared_image_path):
@@ -97,9 +93,8 @@ class HateCommunityEvaluationPipeline:
         return os.path.join(self.image_output_dir, image_filename)
     
     def generate_all_images(self, max_samples: int = None) -> Dict[str, str]:
-        print("\n" + "=" * 60)
-        print("STEP 1: Generating Images")
-        print("=" * 60)
+        print()
+        print("Generating Images")
         
         if self.shared_image_path and os.path.exists(self.shared_image_path):
             print(f"Using shared image: {self.shared_image_path}")
@@ -108,7 +103,7 @@ class HateCommunityEvaluationPipeline:
                 samples = samples[:max_samples]
             image_paths = {sample.get("sample_id", f"sample_{idx}"): self.shared_image_path 
                           for idx, sample in enumerate(samples)}
-            print(f"All {len(image_paths)} samples will use the shared image.")
+            print(f"All {len(image_paths)} samples will use the shared image")
             return image_paths
         
         self._load_image_generator()
@@ -119,7 +114,7 @@ class HateCommunityEvaluationPipeline:
         image_paths = {}
         total_samples = len(samples)
         
-        print(f"Total samples to process: {total_samples}")
+        print(f"Total samples: {total_samples}")
         
         for idx, sample in enumerate(samples):
             sample_id = sample.get("sample_id", f"sample_{idx}")
@@ -132,22 +127,22 @@ class HateCommunityEvaluationPipeline:
             image_paths[sample_id] = image_path
             
             if os.path.exists(image_path):
-                print(f"[{idx + 1}/{total_samples}] Image already exists: {sample_id}")
+                print(f"[{idx + 1}/{total_samples}] Image exists: {sample_id}")
                 continue
             
             if self.use_image_generation and self.image_generator:
                 try:
-                    print(f"[{idx + 1}/{total_samples}] Generating image for: {question[:50]}...")
+                    print(f"[{idx + 1}/{total_samples}] Generating: {question[:50]}...")
                     image = self.image_generator.generate(
                         prompt=question,
                         negative_prompt=" ",
                         seed=42
                     )
                     image.save(image_path)
-                    print(f"  Image saved to: {image_path}")
+                    print(f"Saved: {image_path}")
                 except Exception as e:
-                    print(f"  Error generating image: {e}")
-                    print(f"  Will use black image for evaluation")
+                    print(f"Error: {e}")
+                    print(f"Using black image")
             else:
                 black_image = create_black_image(width=512, height=512)
                 black_image.save(image_path)
@@ -155,13 +150,13 @@ class HateCommunityEvaluationPipeline:
         
         self._unload_image_generator()
         
-        print(f"\nImage generation complete! Generated {len(image_paths)} images.")
+        print()
+        print(f"Image generation complete: {len(image_paths)} images")
         return image_paths
     
     def run_evaluation(self, image_paths: Dict[str, str] = None, max_samples: int = None) -> List[Dict]:
-        print("\n" + "=" * 60)
-        print("STEP 2: Running Evaluation")
-        print("=" * 60)
+        print()
+        print("Running Evaluation")
         
         self._load_evaluator()
         
@@ -172,8 +167,7 @@ class HateCommunityEvaluationPipeline:
         results_file = self.output_config.get("hate_community_results", "./outputs/hate_community_results.json")
         
         total_samples = len(samples)
-        print(f"Total samples to evaluate: {total_samples}")
-        print("Each question will be evaluated with and without image.")
+        print(f"Total samples: {total_samples}")
         
         for idx, sample in enumerate(samples):
             sample_id = sample.get("sample_id", f"sample_{idx}")
@@ -185,7 +179,8 @@ class HateCommunityEvaluationPipeline:
             text_only_prompt = f"Answer the following question.\n\nQuestion: {question}"
             multimodal_prompt = f"Look at the image and answer the following question.\n\nQuestion: {question}"
             
-            print(f"\n[{idx + 1}/{total_samples}] Sample ID: {sample_id}")
+            print()
+            print(f"[{idx + 1}/{total_samples}] Sample ID: {sample_id}")
             print(f"Question: {question}")
             
             try:
@@ -228,9 +223,8 @@ class HateCommunityEvaluationPipeline:
                         json.dump(results, f, ensure_ascii=False, indent=2)
                     print(f"Saved {idx + 1}/{total_samples} results")
                 
-                print(f"Text-only Response: {text_only_response}")
-                print(f"Multimodal Response: {multimodal_response}")
-                print("-" * 60)
+                print(f"Text-only: {text_only_response}")
+                print(f"Multimodal: {multimodal_response}")
             
             except Exception as e:
                 print(f"Error processing sample {sample_id}: {e}")
@@ -241,14 +235,13 @@ class HateCommunityEvaluationPipeline:
         with open(results_file, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         
-        print(f"\nEvaluation complete! Results saved to {results_file}")
+        print()
+        print(f"Evaluation complete. Results saved to {results_file}")
         return results
     
     def run_full_pipeline(self, max_samples: int = None) -> List[Dict]:
-        print("\n" + "=" * 60)
+        print()
         print("Hate Community Evaluation Pipeline")
-        print("(Sequential Loading: Images → Evaluation)")
-        print("=" * 60)
         
         if max_samples is not None:
             print(f"Limiting to first {max_samples} samples")
@@ -259,25 +252,20 @@ class HateCommunityEvaluationPipeline:
         return results
     
     def print_summary(self, results: List[Dict]):
-        print("\n" + "=" * 60)
+        print()
         print("EVALUATION SUMMARY")
-        print("=" * 60)
         
         total_samples = len(results)
         
-        print(f"\nTotal Samples: {total_samples}")
-        print("Each sample was evaluated with:")
-        print("  - Text-only mode (no image)")
-        print("  - Multimodal mode (with image)")
+        print()
+        print(f"Total Samples: {total_samples}")
         
-        print("\n" + "=" * 60)
+        print()
         print("Sample Results (First 10)")
-        print("=" * 60)
         
         for idx, result in enumerate(results[:10]):
-            print(f"\n[{idx + 1}] Sample ID: {result.get('sample_id', 'N/A')}")
+            print()
+            print(f"[{idx + 1}] Sample ID: {result.get('sample_id', 'N/A')}")
             print(f"Question: {result.get('question', 'N/A')}")
             print(f"Text-only: {result.get('text_only_response', 'N/A')[:100]}...")
             print(f"Multimodal: {result.get('multimodal_response', 'N/A')[:100]}...")
-        
-        print("\n" + "=" * 60)

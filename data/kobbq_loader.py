@@ -26,7 +26,7 @@ class KOBBQLoader:
         if not os.path.exists(dataset_path):
             raise FileNotFoundError(
                 f"Dataset not found at {dataset_path}. "
-                f"Please run 'python scripts/download_dataset.py' first to download and save the dataset."
+                f"Run 'python scripts/download_dataset.py' first."
             )
         
         try:
@@ -106,6 +106,7 @@ class KOBBQLoader:
                 "answer": sample.get("answer", ""),
                 "biased_answer": sample.get("biased_answer", ""),
                 "bbq_category": sample.get("bbq_category", ""),
+                "label_annotation": sample.get("label_annotation", ""),
                 "context_type": metadata["context_type"],
                 "bias_type": metadata["bias_type"]
             })

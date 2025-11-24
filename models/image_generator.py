@@ -34,7 +34,7 @@ class ImageGenerator:
         if not os.path.exists(self.model_config["local_path"]):
             raise FileNotFoundError(
                 f"Model not found at {self.model_config['local_path']}. "
-                f"Please run scripts/download_models.py first to download the model."
+                f"Run scripts/download_models.py first."
             )
         
         use_memory_efficient = self.model_config.get("use_memory_efficient", False)
@@ -46,19 +46,17 @@ class ImageGenerator:
         )
         
         if use_memory_efficient:
-            print("Enabling memory-efficient optimizations (slower but uses less VRAM)...")
+            print("Enabling memory-efficient mode...")
             self.pipeline.enable_model_cpu_offload()
             self.pipeline.enable_vae_slicing()
             self.pipeline.enable_attention_slicing(2)
             if hasattr(self.pipeline, 'enable_vae_tiling'):
                 self.pipeline.enable_vae_tiling()
-            print("Memory optimizations enabled!")
         else:
-            print("Loading model to GPU for maximum speed...")
             self.pipeline = self.pipeline.to(self.device)
             self.pipeline.enable_attention_slicing(2)
         
-        print("Model loaded successfully!")
+        print("Model loaded")
     
     def _load_kimchi_model(self):
         print("Loading Kimchi model (Stable Diffusion + Korean CLIP + LoRA)...")
@@ -68,22 +66,13 @@ class ImageGenerator:
         clip_model_path = self.model_config.get("clip_model_path", "./models_cache/clip-vit-large-patch14-ko")
         
         if not os.path.exists(pretrained_model_path) or not os.path.isdir(pretrained_model_path):
-            raise FileNotFoundError(
-                f"Pretrained model not found at {pretrained_model_path}. "
-                f"Please download Stable Diffusion v1.5 model to this local path."
-            )
+            raise FileNotFoundError(f"Pretrained model not found at {pretrained_model_path}")
         
         if not os.path.exists(clip_model_path) or not os.path.isdir(clip_model_path):
-            raise FileNotFoundError(
-                f"CLIP model not found at {clip_model_path}. "
-                f"Please download Korean CLIP model to this local path."
-            )
+            raise FileNotFoundError(f"CLIP model not found at {clip_model_path}")
         
         if lora_path and not os.path.exists(lora_path):
-            raise FileNotFoundError(
-                f"LoRA weights not found at {lora_path}. "
-                f"Please check the lora_path in config.yaml."
-            )
+            raise FileNotFoundError(f"LoRA weights not found at {lora_path}")
         
         print(f"Loading Stable Diffusion from {pretrained_model_path}...")
         self.pipeline = DiffusionPipeline.from_pretrained(
@@ -113,7 +102,7 @@ class ImageGenerator:
         self.pipeline = self.pipeline.to(self.device)
         self.pipeline.enable_attention_slicing(2)
         
-        print("Kimchi model loaded successfully!")
+        print("Kimchi model loaded")
     
     def generate(self, prompt: str, negative_prompt: str = " ", seed: Optional[int] = None):
         base_width = self.gen_config.get("width", 512)

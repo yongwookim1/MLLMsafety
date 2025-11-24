@@ -13,19 +13,20 @@ def test_imports():
         from data import KOBBQLoader
         from evaluation import EvaluationPipeline
         from utils import extract_answer, format_choices, create_black_image
-        print("✓ All imports successful")
+        print("All imports OK")
         return True
     except Exception as e:
-        print(f"✗ Import error: {e}")
+        print(f"Import error: {e}")
         return False
 
 def test_config():
-    print("\nTesting config file...")
+    print()
+    print("Testing config file...")
     try:
         import yaml
         config_path = "configs/config.yaml"
         if not os.path.exists(config_path):
-            print(f"✗ Config file not found: {config_path}")
+            print(f"Config file not found: {config_path}")
             return False
         
         with open(config_path, "r", encoding="utf-8") as f:
@@ -34,17 +35,18 @@ def test_config():
         required_keys = ["models", "dataset", "image_generation", "evaluation", "device", "outputs"]
         for key in required_keys:
             if key not in config:
-                print(f"✗ Missing config key: {key}")
+                print(f"Missing config key: {key}")
                 return False
         
-        print("✓ Config file is valid")
+        print("Config OK")
         return True
     except Exception as e:
-        print(f"✗ Config error: {e}")
+        print(f"Config error: {e}")
         return False
 
 def test_paths():
-    print("\nTesting paths...")
+    print()
+    print("Testing paths...")
     try:
         config_path = "configs/config.yaml"
         import yaml
@@ -61,30 +63,28 @@ def test_paths():
         for path in paths_to_check:
             if not os.path.isabs(path):
                 abs_path = os.path.abspath(path)
-                print(f"  {path} -> {abs_path}")
+                print(f"{path} -> {abs_path}")
         
-        print("✓ Paths are valid")
+        print("Paths OK")
         return True
     except Exception as e:
-        print(f"✗ Path error: {e}")
+        print(f"Path error: {e}")
         return False
 
 def test_data_loader():
-    print("\nTesting data loader initialization...")
+    print()
+    print("Testing data loader initialization...")
     try:
         from data import KOBBQLoader
         loader = KOBBQLoader()
-        print(f"✓ Data loader initialized (dataset size: {len(loader.dataset)})")
+        print(f"Data loader OK (dataset size: {len(loader.dataset)})")
         return True
     except Exception as e:
-        print(f"✗ Data loader error: {e}")
-        print("  Note: This might require internet connection for first-time dataset download")
+        print(f"Data loader error: {e}")
         return False
 
 def main():
-    print("=" * 60)
     print("Pipeline Test Suite")
-    print("=" * 60)
     
     tests = [
         ("Imports", test_imports),
@@ -99,21 +99,22 @@ def main():
             result = test_func()
             results.append((test_name, result))
         except Exception as e:
-            print(f"✗ {test_name} failed with exception: {e}")
+            print(f"{test_name} failed with exception: {e}")
             results.append((test_name, False))
     
-    print("\n" + "=" * 60)
+    print()
     print("Test Summary")
-    print("=" * 60)
     for test_name, result in results:
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "PASS" if result else "FAIL"
         print(f"{test_name}: {status}")
     
     all_passed = all(result for _, result in results)
     if all_passed:
-        print("\n✓ All tests passed!")
+        print()
+        print("All tests passed")
     else:
-        print("\n✗ Some tests failed. Please check the errors above.")
+        print()
+        print("Some tests failed")
     
     return all_passed
 

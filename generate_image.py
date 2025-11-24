@@ -1,5 +1,6 @@
 import os
 import torch
+import hashlib
 from diffusers import DiffusionPipeline
 from PIL import Image
 from typing import Optional
@@ -21,20 +22,20 @@ class QwenImageGenerator:
         try:
             frees = [torch.cuda.mem_get_info(i)[0] for i in range(torch.cuda.device_count())]
             best_id = frees.index(max(frees))
-            print(f"Auto-selected GPU: cuda:{best_id} (Free: {max(frees)/1024**3:.1f}GB)")
+            print(f"Using GPU: cuda:{best_id} ({max(frees)/1024**3:.1f}GB free)")
             return f"cuda:{best_id}"
         except Exception as e:
-            print(f"GPU auto-select failed: {e}. Defaulting to cuda:0")
+            print(f"GPU select failed: {e}, using cuda:0")
             return "cuda:0"
     
     def _load_model(self):
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(
                 f"Model not found at {self.model_path}. "
-                f"Please run scripts/download_models.py first."
+                f"Run scripts/download_models.py first."
             )
         
-        print(f"Loading Qwen-Image model from {self.model_path}...")
+        print(f"Loading model from {self.model_path}...")
         
         self.pipeline = DiffusionPipeline.from_pretrained(
             self.model_path,
@@ -43,18 +44,17 @@ class QwenImageGenerator:
         )
         
         if self.use_memory_efficient:
-            print("Enabling memory-efficient optimizations (slower but uses less VRAM)...")
+            print("Enabling memory-efficient mode...")
             self.pipeline.enable_model_cpu_offload()
             self.pipeline.enable_vae_slicing()
             self.pipeline.enable_attention_slicing(2)
             if hasattr(self.pipeline, 'enable_vae_tiling'):
                 self.pipeline.enable_vae_tiling()
         else:
-            print(f"Loading model to {self.device} for maximum speed...")
             self.pipeline = self.pipeline.to(self.device)
             self.pipeline.enable_attention_slicing(2)
         
-        print("Model loaded successfully!")
+        print("Model loaded")
     
     def generate(
         self,
@@ -84,22 +84,50 @@ class QwenImageGenerator:
         
         return image
     
+    def generate_if_new(
+        self,
+        prompt: str,
+        output_dir: str,
+        filename_prefix: str = "",
+        **kwargs
+    ) -> Optional[str]:
+        prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+        
+        if filename_prefix:
+            filename = f"{filename_prefix}_{prompt_hash}.jpg"
+        else:
+            filename = f"{prompt_hash}.jpg"
+            
+        output_path = os.path.join(output_dir, filename)
+        
+        if os.path.exists(output_path):
+            print(f"Skipping: {prompt[:30]}... (exists)")
+            return None
+            
+        print(f"Generating: {prompt[:30]}...")
+        image = self.generate(prompt, **kwargs)
+        
+        os.makedirs(output_dir, exist_ok=True)
+        self.save_image(image, output_path)
+        return output_path
+    
     def save_image(self, image: Image.Image, output_path: str):
         image.save(output_path)
-        print(f"Image saved to {output_path}")
+        print(f"Saved: {output_path}")
 
 
 def main():
     generator = QwenImageGenerator()
     
     prompt = "지난주 이마트 앞에서 카카오택시로 택시를 잡으려는 손자와 할머니를 봤습니다."
-    image = generator.generate(prompt)
+    output_dir = "./outputs"
     
-    output_path = "./outputs/generated_image.jpg"
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    generator.save_image(image, output_path)
+    output_path = generator.generate_if_new(prompt, output_dir, filename_prefix="demo")
     
-    print(f"Generated image from prompt: '{prompt}'")
+    if output_path:
+        print(f"Done: {output_path}")
+    else:
+        print("Skipped (already exists)")
 
 
 if __name__ == "__main__":

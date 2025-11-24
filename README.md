@@ -44,6 +44,8 @@ python scripts/generate_images.py    # Generate images
 python scripts/run_evaluation.py      # Run evaluation
 ```
 
+The evaluation step iterates over all five KoBBQ prompt templates defined in `evaluation/kobbq_prompts.tsv`, mirroring the official KoBBQ benchmark procedure.
+
 ## Project Structure
 
 ```
@@ -75,6 +77,7 @@ Edit `configs/config.yaml` to adjust:
 - Model paths and settings
 - Image generation parameters
 - Evaluation settings
+- Prompt templates / prompt IDs (KoBBQ instructions)
 - Output directories
 
 ## Models
@@ -124,8 +127,8 @@ Edit `configs/config.yaml` to adjust:
 ## Output Files
 
 - `outputs/hate_images/`: Generated images
-- `outputs/evaluation_results/`: Evaluation results
-- `outputs/*.json`: Detailed results and mappings
+- `outputs/evaluation_results/`: Evaluation summaries saved per prompt (e.g., `kobbq_comparison_evaluation_prompt_1.json`)
+- `outputs/*.json`: Detailed comparison and mismatch logs per prompt plus the image-context mapping
 
 ## Troubleshooting
 

@@ -28,7 +28,7 @@ class Evaluator:
         if not os.path.exists(self.model_config["local_path"]):
             raise FileNotFoundError(
                 f"Model not found at {self.model_config['local_path']}. "
-                f"Please run scripts/download_models.py first to download the model."
+                f"Run scripts/download_models.py first."
             )
         
         device_map = self.model_config.get("device_map", "auto")
@@ -47,7 +47,7 @@ class Evaluator:
             local_files_only=True
         )
         
-        print("Model loaded successfully!")
+        print("Model loaded")
     
     def run_inference(
         self,
@@ -55,71 +55,66 @@ class Evaluator:
         image: Optional[Image.Image] = None,
         use_image: bool = True
     ) -> str:
-        try:
-            if use_image and image is not None:
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "image": image},
-                            {"type": "text", "text": prompt}
-                        ]
-                    }
-                ]
-            else:
-                messages = [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt}
-                        ]
-                    }
-                ]
-            
-            text = self.processor.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            
-            if use_image and image is not None:
-                inputs = self.processor(
-                    text=[text],
-                    images=[image],
-                    padding=True,
-                    return_tensors="pt"
-                )
-            else:
-                inputs = self.processor(
-                    text=[text],
-                    padding=True,
-                    return_tensors="pt"
-                )
-            
-            inputs = inputs.to(self.device)
-            
-            with torch.no_grad():
-                generated_ids = self.model.generate(
-                    **inputs,
-                    max_new_tokens=self.eval_config["max_new_tokens"],
-                    temperature=self.eval_config.get("temperature", 0.0),
-                    do_sample=False,
-                    top_p=None,
-                )
-            
-            generated_ids_trimmed = [
-                out_ids[len(in_ids):]
-                for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        if use_image and image is not None:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image", "image": image},
+                        {"type": "text", "text": prompt}
+                    ]
+                }
             ]
-            
-            response = self.processor.batch_decode(
-                generated_ids_trimmed,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=False
-            )[0]
-            
-            return response
+        else:
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ]
         
-        except Exception as e:
-            print(f"Error in inference: {e}")
-            return None
+        text = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+        
+        if use_image and image is not None:
+            inputs = self.processor(
+                text=[text],
+                images=[image],
+                padding=True,
+                return_tensors="pt"
+            )
+        else:
+            inputs = self.processor(
+                text=[text],
+                padding=True,
+                return_tensors="pt"
+            )
+        
+        inputs = inputs.to(self.device)
+        
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **inputs,
+                max_new_tokens=self.eval_config["max_new_tokens"],
+                temperature=self.eval_config.get("temperature", 0.0),
+                do_sample=False,
+                top_p=None,
+            )
+        
+        generated_ids_trimmed = [
+            out_ids[len(in_ids):]
+            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        
+        response = self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False
+        )[0]
+        
+        return response

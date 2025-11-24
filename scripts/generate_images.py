@@ -25,9 +25,7 @@ def main():
     with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     
-    print("=" * 60)
-    print("KOBBQ Image Generation Pipeline")
-    print("=" * 60)
+    print("KOBBQ Image Generation")
     
     image_generator = ImageGenerator(config_path)
     data_loader = KOBBQLoader(config_path)
@@ -58,7 +56,8 @@ def main():
     contexts = data_loader.get_unique_contexts(max_contexts=max_contexts)
     
     print(f"Total contexts to generate: {len(contexts)}")
-    print(f"Output directory: {output_dir}\n")
+    print(f"Output directory: {output_dir}")
+    print()
     
     generated_count = 0
     skipped_count = 0
@@ -89,20 +88,18 @@ def main():
             generated_count += 1
             
             if (idx + 1) % 100 == 0:
-                print(f"\nProgress: {idx + 1}/{len(contexts)} contexts processed")
-                print(f"  Generated: {generated_count}, Skipped: {skipped_count}")
+                print(f"Progress: {idx + 1}/{len(contexts)} contexts processed")
+                print(f"Generated: {generated_count}, Skipped: {skipped_count}")
         
         except Exception as e:
-            print(f"\nError processing context (sample_id: {sample_id}): {e}")
+            print()
+            print(f"Error processing context (sample_id: {sample_id}): {e}")
             continue
     
-    print("\n" + "=" * 60)
-    print("Image generation complete!")
-    print(f"Generated: {generated_count}")
-    print(f"Skipped (already exists): {skipped_count}")
-    print(f"Total: {len(contexts)}")
+    print()
+    print("Image generation complete")
+    print(f"Generated: {generated_count}, Skipped: {skipped_count}, Total: {len(contexts)}")
     print(f"Images saved to: {output_dir}")
-    print("=" * 60)
 
 if __name__ == "__main__":
     main()

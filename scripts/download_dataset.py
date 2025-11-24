@@ -25,14 +25,12 @@ def main():
     cache_dir = os.path.abspath(dataset_config.get("local_cache_dir", "./data_cache"))
     dataset_path = os.path.join(cache_dir, dataset_name.replace("/", "_"), dataset_split)
     
-    print("=" * 60)
     print("Dataset Download Script")
-    print("=" * 60)
-    print(f"\nDataset: {dataset_name}")
+    print()
+    print(f"Dataset: {dataset_name}")
     print(f"Split: {dataset_split}")
-    print(f"Save Directory: {dataset_path}")
-    print("\nThis script will download the dataset and save to disk.")
-    print("Make sure you have internet connection and Hugging Face access.\n")
+    print(f"Save to: {dataset_path}")
+    print()
     
     os.makedirs(cache_dir, exist_ok=True)
     
@@ -42,20 +40,15 @@ def main():
             dataset_name,
             split=dataset_split
         )
-        print(f"✓ Successfully downloaded dataset")
-        print(f"✓ Dataset size: {len(dataset)} samples")
+        print(f"Downloaded: {len(dataset)} samples")
         
-        print(f"\nSaving dataset to disk...")
+        print(f"Saving to disk...")
         dataset.save_to_disk(dataset_path)
-        print(f"✓ Successfully saved dataset to {dataset_path}")
-        
-        print("\n" + "=" * 60)
-        print("Download complete! You can now use the dataset offline.")
-        print(f"Dataset is saved at: {dataset_path}")
-        print("=" * 60)
+        print(f"Saved to {dataset_path}")
+        print()
+        print("Download complete")
     except Exception as e:
-        print(f"✗ Error downloading dataset: {e}")
-        print("Please check your internet connection and Hugging Face access.")
+        print(f"Error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

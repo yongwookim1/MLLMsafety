@@ -16,28 +16,32 @@ def main():
         print(f"Config file not found: {config_path}")
         sys.exit(1)
     
-    print("=" * 60)
     print("MLLM Safety Evaluation Pipeline")
-    print("(Text-only vs Multimodal Comparison)")
-    print("=" * 60)
     
     pipeline = EvaluationPipeline(config_path)
     
-    print("\nStep 1: Creating image-context mapping...")
+    print()
+    print("Creating image-context mapping...")
     pipeline.create_image_context_mapping()
     
-    print("\nStep 2: Running comparison (Text-only vs Multimodal)...")
-    pipeline.run_comparison()
+    prompts = pipeline.get_prompts()
     
-    print("\nStep 3: Evaluating results...")
-    pipeline.evaluate_results()
+    for prompt in prompts:
+        prompt_id = prompt.get("prompt_id")
+        print()
+        print(f"Running comparison (Prompt {prompt_id})...")
+        pipeline.run_comparison(prompt)
+        
+        print()
+        print(f"Evaluating results (Prompt {prompt_id})...")
+        pipeline.evaluate_results(prompt)
+        
+        print()
+        print(f"Finding mismatch cases (Prompt {prompt_id})...")
+        pipeline.find_mismatch_cases(prompt)
     
-    print("\nStep 4: Finding mismatch cases...")
-    pipeline.find_mismatch_cases()
-    
-    print("\n" + "=" * 60)
-    print("Pipeline completed successfully!")
-    print("=" * 60)
+    print()
+    print("Pipeline completed")
 
 if __name__ == "__main__":
     main()

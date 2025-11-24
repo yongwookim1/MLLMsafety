@@ -2,6 +2,9 @@
 models_cache/
 data_cache/
 
+# Scripts
+scripts/download_models.py
+
 # Outputs
 outputs/
 

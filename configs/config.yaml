@@ -45,6 +45,8 @@ evaluation:
   temperature: 0.0  # Greedy decoding for reproducibility
   batch_size: 1
   save_interval: 10
+  prompts_file: "./evaluation/kobbq_prompts.tsv"
+  prompt_ids: [1]
 
 # Device settings
 device:
@@ -53,8 +55,8 @@ device:
 
 # Output paths
 outputs:
-  image_context_mapping: "./outputs/qwen-image/image_context_mapping.json"
-  comparison_results: "./outputs/qwen-image/qwenvl_comparison_results.json"
-  evaluation_summary: "./outputs/qwen-image/kobbq_comparison_evaluation.json"
-  text_correct_multimodal_wrong: "./outputs/qwen-image/text_correct_multimodal_wrong.json"
+  image_context_mapping: "./outputs/evaluation_results/qwen-image/image_context_mapping.json"
+  comparison_results: "./outputs/evaluation_results/qwen-image/qwenvl_comparison_results_prompt_{prompt_id}.json"
+  evaluation_summary: "./outputs/evaluation_results/qwen-image/kobbq_comparison_evaluation_prompt_{prompt_id}.json"
+  text_correct_multimodal_wrong: "./outputs/evaluation_results/qwen-image/text_correct_multimodal_wrong_prompt_{prompt_id}.json"
 
