@@ -4,6 +4,7 @@ import yaml
 from typing import Dict, List, Any, Optional
 from tqdm import tqdm
 from PIL import Image
+from collections import defaultdict
 
 from models.evaluator import Evaluator as QwenVLModel
 from data.tta_loader import TTALoader
@@ -34,13 +35,39 @@ class TTAEvaluationPipeline:
         with open(mapping_file, "r", encoding="utf-8") as f:
             return json.load(f)
 
+    def _find_original_image(self, sample_id: str) -> Optional[str]:
+        """
+        Find the original image file path for a given sample ID.
+        Searches in the TTA dataset's image directories.
+        """
+        # Extract risk number from sample_id (e.g., 'r04_i001_pQO_001' -> '04')
+        if '_' in sample_id and sample_id.startswith('r'):
+            risk_part = sample_id.split('_')[0]  # 'r04'
+            if len(risk_part) >= 3:
+                risk_num = risk_part[1:3]  # '04'
+
+                # Search in the corresponding risk directory
+                risk_dir = f"Risk_{risk_num}"
+                image_dir = os.path.join(self.loader.dataset_path, risk_dir, "image")
+
+                if os.path.exists(image_dir):
+                    # Look for files that start with the sample_id
+                    for file in os.listdir(image_dir):
+                        if file.startswith(sample_id) and file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                            return os.path.join(image_dir, file)
+
+        return None
+
     def run_evaluation(self, limit: Optional[int] = None):
         mapping = self.load_image_mapping()
-        
-        # ONLY Text Samples (which have generated images)
-        text_samples = self.loader.get_text_samples()
-        
-        all_samples = text_samples
+
+        # Get all samples for evaluation
+        text_samples = self.loader.get_text_samples()  # Text samples with generated images
+        image_samples = self.loader.get_image_samples()  # Original image samples
+
+        # Combine samples: text (with generated images) + original image samples
+        all_samples = text_samples + image_samples
+        print(f"Evaluating {len(text_samples)} text samples (with generated images) + {len(image_samples)} original image samples")
         
         if limit:
             all_samples = all_samples[:limit]
@@ -53,20 +80,31 @@ class TTAEvaluationPipeline:
             sample_id = sample.get('id')
             prompt = sample.get('input_prompt')
             risk_category = sample.get('risk', 'Unknown') # 'risk' column from dataset
-            
+            modality = sample.get('modality', 'text')
+
             if not sample_id or not prompt:
                 continue
-                
-            # Get generated image path
-            image_info = mapping.get(sample_id)
-            image_path = image_info['image_path'] if image_info else None
-            
+
+            # Get image path based on modality
             image = None
-            if image_path and os.path.exists(image_path):
-                try:
-                    image = Image.open(image_path).convert("RGB")
-                except Exception as e:
-                    print(f"Error loading image {image_path}: {e}")
+            if modality == 'text':
+                # For text samples: use generated images from mapping
+                image_info = mapping.get(sample_id)
+                image_path = image_info['image_path'] if image_info else None
+                if image_path and os.path.exists(image_path):
+                    try:
+                        image = Image.open(image_path).convert("RGB")
+                    except Exception as e:
+                        print(f"Error loading generated image {image_path}: {e}")
+            elif modality == 'image':
+                # For image samples: find original image files
+                image_path = self._find_original_image(sample_id)
+                if image_path and os.path.exists(image_path):
+                    try:
+                        image = Image.open(image_path).convert("RGB")
+                    except Exception as e:
+                        print(f"Error loading original image {image_path}: {e}")
+            # Note: audio and video modalities are not processed in this version
             
             # Step 1: Generate Response from Target Model (Multimodal)
             target_response = self.target_model.run_inference(
@@ -85,6 +123,7 @@ class TTAEvaluationPipeline:
             
             result_entry = {
                 "sample_id": sample_id,
+                "modality": modality,
                 "prompt": prompt,
                 "risk_category": risk_category,
                 "image_path": image_path,
@@ -154,7 +193,105 @@ class TTAEvaluationPipeline:
         return None
 
     def _save_results(self, results: List[Dict]):
+        # Save complete results
         output_file = os.path.join(self.output_dir, "evaluation_results.json")
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
+
+        # Save categorized results
+        self._save_categorized_results(results)
+
+    def _save_categorized_results(self, results: List[Dict]):
+        """Save results categorized by risk category and modality"""
+        categorized = defaultdict(lambda: defaultdict(list))
+
+        for result in results:
+            risk_category = result.get('risk_category', 'Unknown')
+            modality = result.get('modality', 'text')  # Add modality to results
+
+            # Clean risk category name for filename
+            clean_risk = risk_category.replace('/', '_').replace(' ', '_').replace('(', '').replace(')', '')
+            categorized[modality][clean_risk].append(result)
+
+        # Save categorized results
+        for modality, risk_groups in categorized.items():
+            for risk_name, risk_results in risk_groups.items():
+                category_file = os.path.join(self.output_dir, f"{modality}_{risk_name}_results.json")
+                with open(category_file, "w", encoding="utf-8") as f:
+                    json.dump(risk_results, f, ensure_ascii=False, indent=2)
+
+        # Save summary statistics
+        self._save_category_summary(results)
+
+    def _save_category_summary(self, results: List[Dict]):
+        """Generate and save summary statistics by category"""
+        # Initialize summary structure
+        def create_modality_stats():
+            return {
+                "total": 0,
+                "risk_categories": defaultdict(int),
+                "scores": []
+            }
+
+        def create_risk_stats():
+            return {
+                "total": 0,
+                "modalities": defaultdict(int),
+                "scores": []
+            }
+
+        summary = {
+            "overall": {
+                "total_samples": len(results),
+                "modalities": defaultdict(int),
+                "risk_categories": defaultdict(int),
+                "scores": []
+            },
+            "by_modality": defaultdict(create_modality_stats),
+            "by_risk_category": defaultdict(create_risk_stats)
+        }
+
+        for result in results:
+            modality = result.get('modality', 'unknown')
+            risk_category = result.get('risk_category', 'Unknown')
+            score = result.get('judge_result', {}).get('parsed_score')
+
+            # Overall stats
+            summary["overall"]["modalities"][modality] += 1
+            summary["overall"]["risk_categories"][risk_category] += 1
+            if score is not None:
+                summary["overall"]["scores"].append(score)
+
+            # By modality stats
+            summary["by_modality"][modality]["total"] += 1
+            summary["by_modality"][modality]["risk_categories"][risk_category] += 1
+            if score is not None:
+                summary["by_modality"][modality]["scores"].append(score)
+
+            # By risk category stats
+            summary["by_risk_category"][risk_category]["total"] += 1
+            summary["by_risk_category"][risk_category]["modalities"][modality] += 1
+            if score is not None:
+                summary["by_risk_category"][risk_category]["scores"].append(score)
+
+        # Calculate averages
+        for section in ["overall", "by_modality", "by_risk_category"]:
+            if section == "overall":
+                items = [("", summary["overall"])]
+            elif section == "by_modality":
+                items = summary["by_modality"].items()
+            else:
+                items = summary["by_risk_category"].items()
+
+            for key, data in items:
+                if data["scores"]:
+                    data["avg_score"] = round(sum(data["scores"]) / len(data["scores"]), 2)
+                    data["score_distribution"] = {
+                        f"score_{i}": data["scores"].count(i) for i in range(1, 6)
+                    }
+
+        # Save summary
+        summary_file = os.path.join(self.output_dir, "evaluation_summary.json")
+        with open(summary_file, "w", encoding="utf-8") as f:
+            json.dump(dict(summary), f, ensure_ascii=False, indent=2)
 

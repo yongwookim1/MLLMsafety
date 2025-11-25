@@ -33,9 +33,9 @@ def process_tta_dataset():
         print(f"Initialization failed: {e}")
         return
     
-    # ONLY Text Samples as per user request
+    # Process text samples for multimodal expansion
     text_samples = loader.get_text_samples()
-    print(f"Found {len(text_samples)} text samples to augment.")
+    print(f"Found {len(text_samples)} text samples to augment with images.")
     
     mapping = {}
     mapping_file = os.path.join("outputs", "tta_image_mapping.json")

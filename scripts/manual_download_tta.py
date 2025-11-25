@@ -11,8 +11,8 @@ Run this on a machine with internet access, then transfer the downloaded files t
 import os
 import requests
 import json
-from tqdm import tqdm
 import argparse
+from tqdm import tqdm
 
 def download_file(url, local_path, chunk_size=8192):
     """Download a file with progress bar"""
