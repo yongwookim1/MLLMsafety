@@ -7,7 +7,7 @@ import yaml
 
 
 class ImageGenerator:
-    def __init__(self, config_path: str = "configs/config.yaml"):
+    def __init__(self, config_path: str = "configs/config.yaml", device: Optional[str] = None):
         with open(config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
         
@@ -15,7 +15,11 @@ class ImageGenerator:
         self.gen_config = self.config["image_generation"]
         self.device_config = self.config["device"]
         
-        self.device = self.device_config["cuda_device"] if self.device_config["use_cuda"] and torch.cuda.is_available() else "cpu"
+        if device:
+            self.device = device
+        else:
+            self.device = self.device_config["cuda_device"] if self.device_config["use_cuda"] and torch.cuda.is_available() else "cpu"
+        
         self.torch_dtype = getattr(torch, self.model_config["torch_dtype"])
         
         self.model_type = self.model_config.get("type", "qwen-image")

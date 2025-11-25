@@ -9,6 +9,8 @@ from PIL import Image
 import yaml
 import argparse
 
+import torch.multiprocessing as mp
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -16,6 +18,56 @@ os.chdir(project_root)
 
 from models import ImageGenerator
 from data import KOBBQLoader
+
+def process_batch(rank: int, gpu_id: int, samples: list, config_path: str, output_dir: str):
+    """Worker function to process a batch of samples on a specific GPU"""
+    device = f"cuda:{gpu_id}"
+    print(f"Worker {rank} starting on {device} with {len(samples)} samples")
+    
+    try:
+        # Initialize generator on specific device
+        generator = ImageGenerator(config_path, device=device)
+        
+        generated_count = 0
+        skipped_count = 0
+        
+        for i, sample in enumerate(samples):
+            sample_id = sample["sample_id"]
+            context = sample["context"]
+            
+            if not context or not context.strip():
+                skipped_count += 1
+                continue
+
+            # Generate filename
+            context_hash = hashlib.md5(context.encode()).hexdigest()[:8]
+            safe_sample_id = sample_id.replace("/", "_").replace("\\", "_")
+            filename = f"{safe_sample_id}_{context_hash}.jpg"
+            save_image_path = os.path.join(output_dir, filename)
+            
+            if not os.path.isabs(save_image_path):
+                save_image_path = os.path.abspath(save_image_path)
+
+            if os.path.exists(save_image_path):
+                skipped_count += 1
+                continue
+                
+            try:
+                image = generator.generate(context)
+                image.save(save_image_path, 'JPEG')
+                generated_count += 1
+                
+                if (i + 1) % 10 == 0:
+                    print(f"[Worker {rank}] Progress: {i + 1}/{len(samples)} - Generated: {generated_count}")
+                    
+            except Exception as e:
+                print(f"[Worker {rank}] Error processing {sample_id}: {e}")
+                continue
+                
+    except Exception as e:
+        print(f"[Worker {rank}] Critical error: {e}")
+    finally:
+        print(f"[Worker {rank}] Finished. Generated: {generated_count}, Skipped: {skipped_count}")
 
 def get_existing_sample_ids(output_dir: str) -> set:
     """Get set of sample IDs that already have images generated"""
@@ -90,6 +142,7 @@ def main():
     parser.add_argument("--output-dir", help="Output directory (overrides config)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be generated without actually generating")
     parser.add_argument("--include-political", action="store_true", help="Include samples with political content in context")
+    parser.add_argument("--gpus", type=str, default="0", help="Comma-separated list of GPU IDs to use (e.g., '0,1')")
 
     args = parser.parse_args()
 
@@ -106,11 +159,29 @@ def main():
     print("=" * 40)
 
     # Only load image generator if not dry run
+    # Note: For single GPU, we load it here. For Multi-GPU, it's loaded in workers.
     image_generator = None
+    
+    # ... (rest of loader logic) ...
+
+    # [This block was removed/modified in previous step, ensuring it's clean]
+    # Original single process loop continues below...
+    
+    # Ensure image_generator is loaded for single process mode if needed
+    if not args.dry_run and image_generator is None:
+         # Only load if not already handled by multi-gpu block returning early
+         pass 
+         
+    # Wait, looking at previous `old_string` context, I removed the `image_generator` init lines.
+    # I need to make sure `image_generator` is initialized for the single process loop below.
+    
+    # Let's fix the loop logic to initialize generator if not multi-gpu
+    
     if not args.dry_run:
         image_generator = ImageGenerator(config_path)
 
-    data_loader = KOBBQLoader(config_path)
+    for idx, sample in enumerate(tqdm(samples_to_generate, desc="Generating missing images")):
+
 
     gen_config = config["image_generation"]
     output_dir = args.output_dir or gen_config["output_dir"]
@@ -159,6 +230,44 @@ def main():
 
     print(f"\nGenerating images to: {output_dir}")
     print()
+
+    # Handle Multi-GPU generation
+    gpu_ids = [int(x) for x in args.gpus.split(",")]
+    num_gpus = len(gpu_ids)
+    
+    if num_gpus > 1 and not args.dry_run:
+        print(f"Using {num_gpus} GPUs: {gpu_ids}")
+        
+        # Split samples into chunks
+        chunk_size = len(samples_to_generate) // num_gpus + (1 if len(samples_to_generate) % num_gpus > 0 else 0)
+        chunks = [samples_to_generate[i:i + chunk_size] for i in range(0, len(samples_to_generate), chunk_size)]
+        
+        mp.set_start_method('spawn', force=True)
+        processes = []
+        
+        for rank, (gpu_id, chunk) in enumerate(zip(gpu_ids, chunks)):
+            if not chunk:
+                continue
+            p = mp.Process(target=process_batch, args=(rank, gpu_id, chunk, config_path, output_dir))
+            p.start()
+            processes.append(p)
+            
+        for p in processes:
+            p.join()
+            
+        print("\nMulti-GPU generation complete")
+        # Show final statistics
+        final_existing = get_existing_sample_ids(output_dir)
+        print(f"\nFinal total images: {len(final_existing)}")
+        return
+
+    # Single GPU Logic
+    image_generator = None
+    if not args.dry_run:
+        # Use the first specified GPU for single process
+        device = f"cuda:{gpu_ids[0]}"
+        print(f"Using single GPU: {device}")
+        image_generator = ImageGenerator(config_path, device=device)
 
     generated_count = 0
     skipped_count = 0
