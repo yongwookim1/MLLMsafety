@@ -63,7 +63,10 @@ def process_tta_dataset():
         # Generate if not exists
         if not os.path.exists(filepath):
             try:
-                image = generator.generate(prompt)
+                # Use fixed seed for reproducibility
+                # Using a hash of the prompt as a seed ensures consistent generation per prompt
+                seed = int(hashlib.md5(prompt.encode('utf-8')).hexdigest(), 16) % (2**32)
+                image = generator.generate(prompt, seed=seed)
                 image.save(filepath)
             except Exception as e:
                 print(f"Error generating image for {sample_id}: {e}")
