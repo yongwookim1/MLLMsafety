@@ -46,12 +46,33 @@ class ImageGenerator:
         )
         
         if use_memory_efficient:
-            print("Enabling memory-efficient mode...")
+            print("Enabling aggressive memory-efficient mode...")
+            # Clear any existing GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             self.pipeline.enable_model_cpu_offload()
             self.pipeline.enable_vae_slicing()
-            self.pipeline.enable_attention_slicing(2)
+            self.pipeline.enable_attention_slicing(8)  # More aggressive slicing
+
+            # Move VAE to CPU explicitly to save GPU memory
+            if hasattr(self.pipeline, 'vae'):
+                self.pipeline.vae.to('cpu')
+                print("Moved VAE to CPU")
+
             if hasattr(self.pipeline, 'enable_vae_tiling'):
                 self.pipeline.enable_vae_tiling()
+
+            # Skip xFormers for now due to compatibility issues
+            # try:
+            #     self.pipeline.enable_xformers_memory_efficient_attention()
+            #     print("Enabled xFormers memory efficient attention")
+            # except Exception as e:
+            #     print(f"xFormers not available: {e}")
+            print("Using standard attention for compatibility")
+
+            # Additional memory settings
+            torch.cuda.set_per_process_memory_fraction(0.9)  # Use up to 90% of GPU memory
         else:
             self.pipeline = self.pipeline.to(self.device)
             self.pipeline.enable_attention_slicing(2)
@@ -126,23 +147,39 @@ class ImageGenerator:
             generator = torch.Generator(device=self.device).manual_seed(seed)
         
         device_type = "cuda" if "cuda" in self.device else "cpu"
-        
-        if self.model_type == "kimchi":
-            with torch.autocast(device_type=device_type):
-                image = self.pipeline(
-                    prompt,
-                    num_inference_steps=self.gen_config["num_inference_steps"]
-                ).images[0]
-        else:
-            with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
-                image = self.pipeline(
-                    prompt=prompt,
-                    negative_prompt=negative_prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=self.gen_config["num_inference_steps"],
-                    true_cfg_scale=self.gen_config["true_cfg_scale"],
-                    generator=generator
-                ).images[0]
-        
-        return image
+
+        try:
+            if self.model_type == "kimchi":
+                with torch.autocast(device_type=device_type):
+                    result = self.pipeline(
+                        prompt,
+                        num_inference_steps=self.gen_config["num_inference_steps"]
+                    )
+                    if hasattr(result, 'images') and result.images:
+                        image = result.images[0]
+                    else:
+                        raise ValueError("Pipeline returned no images")
+            else:
+                with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    result = self.pipeline(
+                        prompt=prompt,
+                        negative_prompt=negative_prompt,
+                        width=width,
+                        height=height,
+                        num_inference_steps=self.gen_config["num_inference_steps"],
+                        true_cfg_scale=self.gen_config["true_cfg_scale"],
+                        generator=generator
+                    )
+                    if hasattr(result, 'images') and len(result.images) > 0:
+                        image = result.images[0]
+                    else:
+                        raise ValueError(f"Pipeline returned no images. Result type: {type(result)}, has images: {hasattr(result, 'images')}")
+
+            return image
+
+        except Exception as e:
+            print(f"Error during image generation: {e}")
+            # Clear GPU memory on error
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            raise

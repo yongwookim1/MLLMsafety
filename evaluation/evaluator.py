@@ -483,8 +483,9 @@ class EvaluationPipeline:
         sample_id = result.get("sample_id", "")
         template_id = self._resolve_template_id(sample_id)
         
-        category_from_id = sample_id.split("-")[0] if "-" in sample_id else ""
-        final_category = category_from_id if category_from_id else (result.get("bbq_category") or "Unknown")
+        final_category = result.get("bbq_category")
+        if not final_category or final_category == "Unknown":
+            final_category = self.data_loader.infer_category_from_id(sample_id)
         
         identity_suffix = ""
         parts = sample_id.split("-")
@@ -695,6 +696,10 @@ class EvaluationPipeline:
             text_correct = (text_predicted == ground_truth)
             multimodal_correct = (multimodal_predicted == ground_truth)
             
+            bbq_category = result.get("bbq_category", "")
+            if not bbq_category or bbq_category == "Unknown":
+                bbq_category = self.data_loader.infer_category_from_id(result.get("sample_id", ""))
+
             if text_correct and not multimodal_correct:
                 mismatch_cases.append({
                     "sample_id": result.get("sample_id", ""),
@@ -706,7 +711,7 @@ class EvaluationPipeline:
                     "text_predicted": text_predicted,
                     "multimodal_response": multimodal_response,
                     "multimodal_predicted": multimodal_predicted,
-                    "bbq_category": result.get("bbq_category", ""),
+                    "bbq_category": bbq_category,
                     "image_path": result.get("image_path", "")
                 })
         

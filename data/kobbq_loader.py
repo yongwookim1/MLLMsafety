@@ -45,7 +45,11 @@ class KOBBQLoader:
         
         for sample in self.dataset:
             context = sample.get("context", "")
-            category = sample.get("bbq_category", "Unknown")
+            
+            # Use existing category or infer from ID
+            category = sample.get("bbq_category")
+            if not category or category == "Unknown":
+                category = self.infer_category_from_id(sample.get("sample_id", ""))
             
             if context and context.strip() and context not in seen_contexts:
                 seen_contexts.add(context)
@@ -77,7 +81,48 @@ class KOBBQLoader:
                     })
         
         return contexts
-    
+
+    def get_all_unique_samples(self, max_samples: int = None, categories: List[str] = None,
+                              bias_types: List[str] = None) -> List[Dict]:
+        """
+        Get all unique samples, optionally filtered by categories and bias types.
+        Unlike get_unique_contexts, this returns all samples, not just unique contexts.
+        """
+        samples = self.get_all_samples()
+
+        # Filter by categories if specified
+        if categories:
+            samples = [s for s in samples if s.get("bbq_category") in categories]
+
+        # Filter by bias types if specified
+        if bias_types:
+            samples = [s for s in samples if s.get("bias_type") in bias_types]
+
+        # Limit samples if specified
+        if max_samples:
+            samples = samples[:max_samples]
+
+        # Convert to the format expected by generate_images.py
+        result = []
+        seen_contexts = set()
+
+        for sample in samples:
+            context = sample.get("context", "")
+            if context and context.strip() and context not in seen_contexts:
+                seen_contexts.add(context)
+                result.append({
+                    "context": context,
+                    "sample_id": sample.get("sample_id", ""),
+                    "bbq_category": sample.get("bbq_category", ""),
+                    "bias_type": sample.get("bias_type", "")
+                })
+
+        return result
+
+    def get_samples_by_category(self, category: str, max_samples: int = None) -> List[Dict]:
+        """Get samples for a specific category"""
+        return self.get_all_unique_samples(categories=[category], max_samples=max_samples)
+
     def _parse_sample_id(self, sample_id: str) -> Dict[str, str]:
         parts = sample_id.split("-")
         context_type = "ambiguous" if "amb" in sample_id else "disambiguated"
@@ -87,11 +132,46 @@ class KOBBQLoader:
             "bias_type": bias_type
         }
     
+    def infer_category_from_id(self, sample_id: str) -> str:
+        """Infer BBQ category from sample ID prefix if missing"""
+        if not sample_id:
+            return "Unknown"
+            
+        prefix_map = {
+            "age": "Age",
+            "disability_status": "Disability_status",
+            "gender_identity": "Gender_identity",
+            "nationality": "Nationality",
+            "physical_appearance": "Physical_appearance",
+            "race_ethnicity": "Race_ethnicity",
+            "race_ethnicity_nationality": "Race_ethnicity",
+            "religion": "Religion",
+            "ses": "SES",
+            "sexual_orientation": "Sexual_orientation",
+            "domestic_area_of_origin": "Domestic Area of Origin",
+            "family_structure": "Family Structure",
+            "political_orientation": "Political Orientation",
+            "educational_background": "Education Background"
+        }
+        
+        # Check for exact prefix match first (e.g., "age-...")
+        for prefix, category in prefix_map.items():
+            if sample_id.startswith(prefix + "-"):
+                return category
+                
+        return "Unknown"
+
     def get_all_samples(self) -> List[Dict]:
         samples = []
         for sample in self.dataset:
             sample_id = sample.get("sample_id", "")
             metadata = self._parse_sample_id(sample_id)
+            
+            # Use existing category or infer from ID
+            category = sample.get("bbq_category")
+            if not category or category == "Unknown":
+                category = self.infer_category_from_id(sample_id)
+                
             choices = sample.get("choices", [])
             if isinstance(choices, str):
                 try:
@@ -105,7 +185,7 @@ class KOBBQLoader:
                 "choices": choices,
                 "answer": sample.get("answer", ""),
                 "biased_answer": sample.get("biased_answer", ""),
-                "bbq_category": sample.get("bbq_category", ""),
+                "bbq_category": category,
                 "label_annotation": sample.get("label_annotation", ""),
                 "context_type": metadata["context_type"],
                 "bias_type": metadata["bias_type"]

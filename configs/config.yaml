@@ -8,7 +8,7 @@ models:
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
     torch_dtype: "bfloat16"  # bfloat16 or float16
-    use_memory_efficient: false  # false = faster (GPU), true = slower but uses less VRAM (CPU offload)
+    use_memory_efficient: true  # false = faster (GPU), true = slower but uses less VRAM (CPU offload)
     # Kimchi settings (when type: "kimchi")
     pretrained_model_path: "./models_cache/stable-diffusion-v1-5"  # Stable Diffusion v1.5 local path (required)
     clip_model_path: "./models_cache/clip-vit-large-patch14-ko"  # Korean CLIP model local path (required)

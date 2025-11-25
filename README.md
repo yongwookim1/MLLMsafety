@@ -42,6 +42,9 @@ python scripts/run_full_pipeline.py
 # Or step by step
 python scripts/generate_images.py    # Generate images
 python scripts/run_evaluation.py      # Run evaluation
+
+# TTA Dataset Pipeline (Multimodal Augmentation)
+python scripts/run_tta_pipeline.py    # Complete TTA pipeline
 ```
 
 The evaluation step iterates over all five KoBBQ prompt templates defined in `evaluation/kobbq_prompts.tsv`, mirroring the official KoBBQ benchmark procedure.
@@ -90,6 +93,42 @@ Edit `configs/config.yaml` to adjust:
 
 - **KOBBQ**: Korean Bias Benchmark (`naver-ai/kobbq`)
 - **Hate Community**: Local JSON dataset (`data/hate_community_dataset.json`)
+- **TTA01/AssurAI**: Task Transfer Augmentation dataset for multimodal safety evaluation
+
+### TTA Dataset Pipeline (Multimodal Augmentation)
+
+For environments with HuggingFace firewall restrictions:
+
+#### Manual Download (on machine with internet access)
+
+```bash
+# Download TTA dataset manually (includes ~230 image files)
+python scripts/manual_download_tta.py
+
+# Verify download (checks core files + image files)
+python scripts/manual_download_tta.py --verify-only
+```
+
+#### Transfer to Server
+
+```bash
+# Transfer downloaded dataset to your server
+scp -r data_cache/TTA01_AssurAI user@server:/path/to/MLLMsafety/data_cache/
+```
+
+#### Run TTA Pipeline
+
+```bash
+# Complete TTA pipeline: text-to-image augmentation + multimodal evaluation
+python scripts/run_tta_pipeline.py
+
+# Step by step
+python scripts/prepare_tta_data.py    # Convert text samples to images
+python scripts/run_tta_evaluation.py  # Run multimodal safety evaluation
+
+# With sample limit (for testing)
+python scripts/run_tta_pipeline.py --limit 10
+```
 
 ## Deployment
 
