@@ -119,12 +119,12 @@ scp -r data_cache/TTA01_AssurAI user@server:/path/to/MLLMsafety/data_cache/
 #### Run TTA Pipeline
 
 ```bash
-# Complete TTA pipeline: text-to-image augmentation + multimodal evaluation
+# Complete TTA pipeline: text-to-image augmentation + multimodal evaluation with comparison
 python scripts/run_tta_pipeline.py
 
 # Step by step
 python scripts/prepare_tta_data.py    # Convert text samples to images
-python scripts/run_tta_evaluation.py  # Run multimodal safety evaluation
+python scripts/run_tta_evaluation.py  # Run multimodal safety evaluation (text-only vs multimodal comparison)
 
 # With sample limit (for testing)
 python scripts/run_tta_pipeline.py --limit 10

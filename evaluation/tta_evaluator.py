@@ -106,20 +106,51 @@ class TTAEvaluationPipeline:
                         print(f"Error loading original image {image_path}: {e}")
             # Note: audio and video modalities are not processed in this version
             
-            # Step 1: Generate Response from Target Model (Multimodal)
-            target_response = self.target_model.run_inference(
-                prompt=prompt,
-                image=image,
-                use_image=(image is not None)
-            )
-            
+            # Step 1: Generate Response from Target Model (Text-only and Multimodal)
+            text_only_response = None
+            multimodal_response = None
+
+            if modality == 'text':
+                # For text samples: evaluate both text-only and multimodal
+                # Text-only evaluation
+                text_only_response = self.target_model.run_inference(
+                    prompt=prompt,
+                    image=None,
+                    use_image=False
+                )
+
+                # Multimodal evaluation (text + generated image)
+                multimodal_response = self.target_model.run_inference(
+                    prompt=prompt,
+                    image=image,
+                    use_image=(image is not None)
+                )
+            else:
+                # For original image samples: only multimodal evaluation
+                multimodal_response = self.target_model.run_inference(
+                    prompt=prompt,
+                    image=image,
+                    use_image=(image is not None)
+                )
+
             # Step 2: Evaluate Safety using Judge Model
-            judge_result = self._evaluate_safety(
-                prompt=prompt,
-                response=target_response,
-                image=image,
-                risk_category=risk_category
-            )
+            judge_results = {}
+
+            if text_only_response is not None:
+                judge_results['text_only'] = self._evaluate_safety(
+                    prompt=prompt,
+                    response=text_only_response,
+                    image=None,
+                    risk_category=risk_category
+                )
+
+            if multimodal_response is not None:
+                judge_results['multimodal'] = self._evaluate_safety(
+                    prompt=prompt,
+                    response=multimodal_response,
+                    image=image,
+                    risk_category=risk_category
+                )
             
             result_entry = {
                 "sample_id": sample_id,
@@ -127,8 +158,11 @@ class TTAEvaluationPipeline:
                 "prompt": prompt,
                 "risk_category": risk_category,
                 "image_path": image_path,
-                "target_response": target_response,
-                "judge_result": judge_result
+                "target_responses": {
+                    "text_only": text_only_response,
+                    "multimodal": multimodal_response
+                },
+                "judge_results": judge_results
             }
             results.append(result_entry)
             
@@ -254,41 +288,70 @@ class TTAEvaluationPipeline:
         for result in results:
             modality = result.get('modality', 'unknown')
             risk_category = result.get('risk_category', 'Unknown')
-            score = result.get('judge_result', {}).get('parsed_score')
+            judge_results = result.get('judge_results', {})
 
-            # Overall stats
-            summary["overall"]["modalities"][modality] += 1
-            summary["overall"]["risk_categories"][risk_category] += 1
-            if score is not None:
-                summary["overall"]["scores"].append(score)
+            # Process both text_only and multimodal results
+            for eval_type, judge_result in judge_results.items():
+                score = judge_result.get('parsed_score')
 
-            # By modality stats
-            summary["by_modality"][modality]["total"] += 1
-            summary["by_modality"][modality]["risk_categories"][risk_category] += 1
-            if score is not None:
-                summary["by_modality"][modality]["scores"].append(score)
-
-            # By risk category stats
-            summary["by_risk_category"][risk_category]["total"] += 1
-            summary["by_risk_category"][risk_category]["modalities"][modality] += 1
-            if score is not None:
-                summary["by_risk_category"][risk_category]["scores"].append(score)
-
-        # Calculate averages
-        for section in ["overall", "by_modality", "by_risk_category"]:
-            if section == "overall":
-                items = [("", summary["overall"])]
-            elif section == "by_modality":
-                items = summary["by_modality"].items()
-            else:
-                items = summary["by_risk_category"].items()
-
-            for key, data in items:
-                if data["scores"]:
-                    data["avg_score"] = round(sum(data["scores"]) / len(data["scores"]), 2)
-                    data["score_distribution"] = {
-                        f"score_{i}": data["scores"].count(i) for i in range(1, 6)
+                # Overall stats by evaluation type
+                if "overall" not in summary:
+                    summary["overall"] = {}
+                if eval_type not in summary["overall"]:
+                    summary["overall"][eval_type] = {
+                        "modalities": defaultdict(int),
+                        "risk_categories": defaultdict(int),
+                        "scores": []
                     }
+
+                summary["overall"][eval_type]["modalities"][modality] += 1
+                summary["overall"][eval_type]["risk_categories"][risk_category] += 1
+                if score is not None:
+                    summary["overall"][eval_type]["scores"].append(score)
+
+                # By modality stats
+                if eval_type not in summary["by_modality"][modality]:
+                    summary["by_modality"][modality][eval_type] = {
+                        "total": 0,
+                        "risk_categories": defaultdict(int),
+                        "scores": []
+                    }
+
+                summary["by_modality"][modality][eval_type]["total"] += 1
+                summary["by_modality"][modality][eval_type]["risk_categories"][risk_category] += 1
+                if score is not None:
+                    summary["by_modality"][modality][eval_type]["scores"].append(score)
+
+                # By risk category stats
+                if eval_type not in summary["by_risk_category"][risk_category]:
+                    summary["by_risk_category"][risk_category][eval_type] = {
+                        "total": 0,
+                        "modalities": defaultdict(int),
+                        "scores": []
+                    }
+
+                summary["by_risk_category"][risk_category][eval_type]["total"] += 1
+                summary["by_risk_category"][risk_category][eval_type]["modalities"][modality] += 1
+                if score is not None:
+                    summary["by_risk_category"][risk_category][eval_type]["scores"].append(score)
+
+        # Calculate averages for both evaluation types
+        def calculate_stats_for_section(section_data):
+            """Calculate average scores and distributions for a section"""
+            if isinstance(section_data, dict):
+                for eval_type, data in section_data.items():
+                    if isinstance(data, dict) and "scores" in data and data["scores"]:
+                        data["avg_score"] = round(sum(data["scores"]) / len(data["scores"]), 2)
+                        data["score_distribution"] = {
+                            f"score_{i}": data["scores"].count(i) for i in range(1, 6)
+                        }
+
+        # Calculate stats for each section
+        calculate_stats_for_section(summary["overall"])
+        for modality_data in summary["by_modality"].values():
+            calculate_stats_for_section(modality_data)
+        for risk_data in summary["by_risk_category"].values():
+            calculate_stats_for_section(risk_data)
 
         # Save summary
         summary_file = os.path.join(self.output_dir, "evaluation_summary.json")
