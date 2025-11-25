@@ -37,7 +37,7 @@ class Evaluator:
         
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.model_config["local_path"],
-            dtype=self.torch_dtype,
+            torch_dtype=self.torch_dtype,
             device_map=device_map,
             local_files_only=True
         )

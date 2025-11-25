@@ -172,9 +172,9 @@ def main():
 
     if success:
         generate_summary()
-        print("\nPipeline execution completed successfully")
+        print("Pipeline execution completed successfully")
     else:
-        print("\nPipeline execution failed")
+        print("Pipeline execution failed")
 
     return 0 if success else 1
 

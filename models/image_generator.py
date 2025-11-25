@@ -45,7 +45,7 @@ class ImageGenerator:
         
         self.pipeline = DiffusionPipeline.from_pretrained(
             self.model_config["local_path"],
-            dtype=self.torch_dtype,
+            torch_dtype=self.torch_dtype,
             local_files_only=True
         )
         
@@ -102,7 +102,7 @@ class ImageGenerator:
         print(f"Loading Stable Diffusion from {pretrained_model_path}...")
         self.pipeline = DiffusionPipeline.from_pretrained(
             pretrained_model_path,
-            dtype=self.torch_dtype,
+            torch_dtype=self.torch_dtype,
             local_files_only=True
         )
         
@@ -153,6 +153,10 @@ class ImageGenerator:
         device_type = "cuda" if "cuda" in self.device else "cpu"
 
         try:
+            # Clear cache before generation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             if self.model_type == "kimchi":
                 with torch.autocast(device_type=device_type):
                     result = self.pipeline(
