@@ -42,7 +42,7 @@ image_generation:
 evaluation:
   output_dir: "./outputs/evaluation_results"
   max_new_tokens: 128
-  temperature: 0.0  # Greedy decoding for reproducibility
+  # temperature: 0.0  # Qwen models use greedy decoding by default
   batch_size: 1
   save_interval: 10
   prompts_file: "./evaluation/kobbq_prompts.tsv"

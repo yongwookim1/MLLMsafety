@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, GenerationConfig
 from typing import Optional
 from PIL import Image
 import yaml
@@ -37,7 +37,7 @@ class Evaluator:
         
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             self.model_config["local_path"],
-            torch_dtype=self.torch_dtype,
+            dtype=self.torch_dtype,
             device_map=device_map,
             local_files_only=True
         )
@@ -98,12 +98,16 @@ class Evaluator:
         inputs = inputs.to(self.device)
         
         with torch.no_grad():
+            # Use explicit generation config to override Qwen's defaults
+            generation_config = GenerationConfig(
+                max_new_tokens=self.eval_config["max_new_tokens"],
+                do_sample=False,  # Greedy decoding for deterministic safety evaluation
+                # No temperature/top_p for greedy decoding
+            )
+
             generated_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=self.eval_config["max_new_tokens"],
-                temperature=self.eval_config.get("temperature", 0.0),
-                do_sample=False,
-                top_p=None,
+                generation_config=generation_config,
             )
         
         generated_ids_trimmed = [

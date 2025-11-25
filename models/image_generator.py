@@ -45,7 +45,7 @@ class ImageGenerator:
         
         self.pipeline = DiffusionPipeline.from_pretrained(
             self.model_config["local_path"],
-            torch_dtype=self.torch_dtype,
+            dtype=self.torch_dtype,
             local_files_only=True
         )
         
@@ -102,7 +102,7 @@ class ImageGenerator:
         print(f"Loading Stable Diffusion from {pretrained_model_path}...")
         self.pipeline = DiffusionPipeline.from_pretrained(
             pretrained_model_path,
-            torch_dtype=self.torch_dtype,
+            dtype=self.torch_dtype,
             local_files_only=True
         )
         
