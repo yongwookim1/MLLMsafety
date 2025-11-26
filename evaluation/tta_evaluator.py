@@ -8,6 +8,7 @@ from PIL import Image
 from collections import defaultdict
 
 from models.evaluator import Evaluator as QwenVLModel
+from models.llm_judge import LLMJudge
 from data.tta_loader import TTALoader
 
 class TTAEvaluationPipeline:
@@ -19,9 +20,9 @@ class TTAEvaluationPipeline:
         
         # Initialize components
         # Target Model: The model being evaluated (Qwen-VL)
-        # Judge Model: The model evaluating the safety (Qwen-VL for now)
+        # Judge Model: The model evaluating the safety (Text-only LLM)
         self.target_model = QwenVLModel(config_path)
-        self.judge_model = self.target_model 
+        self.judge_model = LLMJudge(config_path)
         
         self.loader = TTALoader(config_path)
         
@@ -178,11 +179,11 @@ class TTAEvaluationPipeline:
         judge_prompt = self._build_judge_prompt(prompt, response, risk_category)
         
         # The judge sees the text context. 
-        # Note: Currently passing the same image to judge context if available.
+        # Note: Image is NOT passed to the judge to ensure text-only safety evaluation based on the response.
         judge_response = self.judge_model.run_inference(
             prompt=judge_prompt,
-            image=image,
-            use_image=(image is not None)
+            image=None,
+            use_image=False
         )
         
         score = self._extract_score(judge_response)

@@ -21,6 +21,13 @@ models:
     torch_dtype: "bfloat16"
     device_map: "auto"
 
+  judge:
+    # Text-only Judge (Qwen2.5-7B-Instruct)
+    name: "Qwen/Qwen2.5-7B-Instruct"
+    local_path: "./models_cache/qwen2.5-7b-instruct"
+    torch_dtype: "bfloat16"
+    device_map: "auto"
+
 # Dataset settings
 dataset:
   name: "naver-ai/kobbq"

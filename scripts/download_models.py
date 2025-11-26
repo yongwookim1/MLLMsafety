@@ -104,6 +104,14 @@ def download_evaluator(model_cfg: dict) -> bool:
     )
 
 
+def download_judge(model_cfg: dict) -> bool:
+    return download_repo(
+        repo_id=model_cfg["name"],
+        local_path=model_cfg["local_path"],
+        description="Judge (Qwen2.5-7B-Instruct)"
+    )
+
+
 def main():
     config_path = "configs/config.yaml"
     
@@ -118,6 +126,7 @@ def main():
     models_config = config["models"]
     image_cfg = models_config["image_generator"]
     evaluator_cfg = models_config["evaluator"]
+    judge_cfg = models_config.get("judge")
     
     print("Model Download Script")
     print()
@@ -131,6 +140,9 @@ def main():
         overall_success &= download_qwen_image(image_cfg)
     
     overall_success &= download_evaluator(evaluator_cfg)
+
+    if judge_cfg:
+        overall_success &= download_judge(judge_cfg)
     
     if overall_success:
         print("All downloads completed")
