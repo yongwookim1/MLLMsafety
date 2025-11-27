@@ -33,7 +33,7 @@ class AlignmentEvaluator:
         
         # Note: KoCLIP might not be in models_cache, so we allow it to download if missing,
         # or you can map it to a local path if you have one.
-        self.koclip_model_name = "Bingsu/clip-vit-large-patch14-ko"
+        self.koclip_model_name = os.path.abspath("./models_cache/clip-vit-large-patch14-ko")
         
     def load_and_sample_data(self, target_count=500) -> List[Dict]:
         """Load TTA dataset and perform stratified sampling by category."""
@@ -210,7 +210,7 @@ class AlignmentEvaluator:
                 local_files_only=True
             ).to(device_str)
             
-            pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
+            # pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
             pipeline.enable_attention_slicing(1)
             
             os.makedirs(output_dir, exist_ok=True)
