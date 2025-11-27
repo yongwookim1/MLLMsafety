@@ -22,6 +22,7 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
         print(f"GPU {gpu_id}: Starting generation for {len(samples)} samples...")
         
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # Since we set CUDA_VISIBLE_DEVICES, the target GPU will always be "cuda:0" inside this process
         device_map = {"": "cuda:0"}
         worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
         
@@ -181,6 +182,7 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], output_d
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
         
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # Since we set CUDA_VISIBLE_DEVICES, the target GPU will always be "cuda:0" inside this process
         device_map = {"": "cuda:0"}
         worker_output_file = os.path.join(output_dir, f"evaluation_results_gpu_{gpu_id}.json")
         
