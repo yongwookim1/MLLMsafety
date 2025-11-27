@@ -96,15 +96,13 @@ class LLMJudge:
         image: Optional[any] = None,
         use_image: bool = False
     ) -> str:
-        if self.is_vlm and use_image and image is not None:
-            return self._run_vlm_inference(prompt, image, use_image)
+        # Force text-only inference regardless of image input
         return self.run_batch([prompt])[0]
 
     def run_batch(self, prompts: List[str]) -> List[str]:
         if not prompts:
             return []
-        if self.is_vlm:
-            return self._run_vlm_batch_text_only(prompts)
+        # Since we switched to Text-only LLM (Qwen2.5-7B-Instruct), we use _run_text_batch
         return self._run_text_batch(prompts)
 
     def _run_text_batch(self, prompts: List[str]) -> List[str]:
@@ -177,9 +175,20 @@ class LLMJudge:
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False
         )
+    
+    def _resize_image_if_needed(self, image: Image.Image, max_size: int = 1024) -> Image.Image:
+        """Resize image if it exceeds the maximum dimension to prevent OOM."""
+        width, height = image.size
+        if max(width, height) > max_size:
+            ratio = max_size / max(width, height)
+            new_size = (int(width * ratio), int(height * ratio))
+            return image.resize(new_size, Image.Resampling.LANCZOS)
+        return image
 
     def _run_vlm_inference(self, prompt: str, image: Optional[any] = None, use_image: bool = False) -> str:
         if use_image and image is not None:
+            # Resize image to prevent OOM
+            image = self._resize_image_if_needed(image)
             messages = [
                 {
                     "role": "user",

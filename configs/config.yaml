@@ -22,9 +22,9 @@ models:
     device_map: "auto"
 
   judge:
-    # VLM Judge (Qwen2.5-VL-7B-Instruct)
-    name: "Qwen/Qwen2.5-VL-7B-Instruct"
-    local_path: "./models_cache/qwen2.5-vl-7b-instruct"
+    # LLM Judge (Qwen2.5-7B-Instruct - Text Only)
+    name: "Qwen/Qwen2.5-7B-Instruct"
+    local_path: "./models_cache/qwen2.5-7b-instruct"
     torch_dtype: "bfloat16"
     device_map: "auto"
 
