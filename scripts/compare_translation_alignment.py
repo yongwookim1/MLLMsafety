@@ -145,7 +145,14 @@ class AlignmentEvaluator:
             inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left").to(model.device)
             
             with torch.no_grad():
-                generated_ids = model.generate(**inputs, max_new_tokens=256, do_sample=False)
+                generated_ids = model.generate(
+                    **inputs, 
+                    max_new_tokens=256, 
+                    do_sample=False,
+                    temperature=None,
+                    top_p=None,
+                    top_k=None
+                )
                 generated_ids = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
                 decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             
