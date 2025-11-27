@@ -308,6 +308,16 @@ class AlignmentEvaluator:
         kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
         en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
         
+        # Load image mapping for Korean images
+        mapping_file = os.path.join(self.args.output_dir, "tta_image_mapping.json")
+        kr_image_mapping = {}
+        if os.path.exists(mapping_file):
+            with open(mapping_file, 'r', encoding='utf-8') as f:
+                kr_image_mapping = json.load(f)
+            print(f"Loaded {len(kr_image_mapping)} entries from image mapping")
+        else:
+            print(f"Warning: {mapping_file} not found")
+        
         try:
             model = CLIPModel.from_pretrained(self.koclip_model_name, local_files_only=True).to(self.device)
             processor = CLIPProcessor.from_pretrained(self.koclip_model_name, local_files_only=True)
@@ -326,13 +336,17 @@ class AlignmentEvaluator:
             en_prompt = item.get('en_prompt')
             if not en_prompt: continue
             
-            kr_hash = hashlib.md5(kr_text.encode('utf-8')).hexdigest()
+            sample_id = item.get('id')
             en_hash = hashlib.md5(en_prompt.encode('utf-8')).hexdigest()
             
-            kr_path = os.path.join(kr_img_dir, f"{kr_hash}.jpg")
+            # Get Korean image path from mapping
+            kr_path = None
+            if sample_id and sample_id in kr_image_mapping:
+                kr_path = kr_image_mapping[sample_id].get('image_path')
+            
             en_path = os.path.join(en_img_dir, f"en_{en_hash}.jpg")
             
-            if os.path.exists(kr_path) and os.path.exists(en_path):
+            if kr_path and os.path.exists(kr_path) and os.path.exists(en_path):
                 eval_items.append({
                     'raw_item': item,
                     'kr_text': kr_text,
