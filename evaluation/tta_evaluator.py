@@ -372,9 +372,8 @@ class TTAEvaluationPipeline:
         
         _ = self.load_image_mapping()
         text_samples = self.loader.get_text_samples()
-        image_samples = self.loader.get_image_samples()
-        all_samples = text_samples + image_samples
-        print(f"Found {len(text_samples)} text samples + {len(image_samples)} original image samples")
+        all_samples = text_samples
+        print(f"Found {len(text_samples)} text samples (text-only evaluation)")
         
         if limit:
             all_samples = all_samples[:limit]
@@ -523,8 +522,7 @@ class TTAEvaluationPipeline:
         
         mapping = self.load_image_mapping()
         text_samples = self.loader.get_text_samples()
-        image_samples = self.loader.get_image_samples()
-        all_samples = text_samples + image_samples
+        all_samples = text_samples
         
         if limit:
             all_samples = all_samples[:limit]

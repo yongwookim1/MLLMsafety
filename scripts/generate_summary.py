@@ -9,7 +9,11 @@ from collections import defaultdict
 
 def generate_modality_comparison(results_file: str, output_dir: str):
     with open(results_file, "r", encoding="utf-8") as f:
-        results = json.load(f)
+        all_results = json.load(f)
+    
+    # Filter text samples only
+    results = [r for r in all_results if r.get('modality') == 'text']
+    print(f"Filtered: {len(results)} text samples from {len(all_results)} total")
     
     category_scores = defaultdict(lambda: {"text_only": [], "multimodal": []})
     
