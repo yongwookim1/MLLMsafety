@@ -324,16 +324,13 @@ class AlignmentEvaluator:
         for p in procs: p.join()
 
     def evaluate_alignment(self, samples: List[Dict]):
-        """Evaluate BOTH Korean and English images against the ORIGINAL KOREAN TEXT."""
+        """Evaluate BOTH Korean and English images against the ORIGINAL KOREAN TEXT using Batch Processing."""
         print(f"Starting evaluation with KoCLIP ({self.koclip_model_name})...")
         
         kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
         en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
         
         try:
-            # Try loading local if possible, otherwise standard load
-            # Note: KoCLIP usually isn't in our models_cache unless downloaded manually.
-            # We assume internet access or pre-downloaded in HF cache.
             model = CLIPModel.from_pretrained(self.koclip_model_name, local_files_only=True).to(self.device)
             processor = CLIPProcessor.from_pretrained(self.koclip_model_name, local_files_only=True)
         except Exception as e:
@@ -341,46 +338,105 @@ class AlignmentEvaluator:
             return
 
         results = []
+        batch_size = 2 # Reduced batch size for evaluation safety
         
-        for item in tqdm(samples, desc="Evaluating"):
-            kr_text = item['proc_text']
-            category = item.get('eval_category', 'unknown')
+        # Prepare data list
+        eval_items = []
+        for item in samples:
+            kr_text = item.get('proc_text')
+            if not kr_text: continue
+            
+            en_prompt = item.get('en_prompt')
+            if not en_prompt: continue # Skip if no translation
             
             kr_hash = hashlib.md5(kr_text.encode('utf-8')).hexdigest()
-            kr_path = os.path.join(kr_img_dir, f"{kr_hash}.jpg")
+            en_hash = hashlib.md5(en_prompt.encode('utf-8')).hexdigest()
             
-            en_text = item.get('en_prompt', "")
-            if not en_text: continue
-            en_hash = hashlib.md5(en_text.encode('utf-8')).hexdigest()
+            kr_path = os.path.join(kr_img_dir, f"{kr_hash}.jpg")
             en_path = os.path.join(en_img_dir, f"en_{en_hash}.jpg")
             
-            score_kr_img = None
-            score_en_img = None
-            
-            if os.path.exists(kr_path):
-                try:
-                    image = Image.open(kr_path).convert("RGB")
-                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.device)
-                    with torch.no_grad():
-                        score_kr_img = model(**inputs).logits_per_image.item()
-                except Exception: pass
-                
-            if os.path.exists(en_path):
-                try:
-                    image = Image.open(en_path).convert("RGB")
-                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.device)
-                    with torch.no_grad():
-                        score_en_img = model(**inputs).logits_per_image.item()
-                except Exception: pass
-            
-            if score_kr_img is not None and score_en_img is not None:
-                results.append({
-                    "category": category,
-                    "kr_text": kr_text,
-                    "score_kr_gen": score_kr_img,
-                    "score_en_gen": score_en_img
+            # Only add if BOTH images exist
+            if os.path.exists(kr_path) and os.path.exists(en_path):
+                eval_items.append({
+                    'raw_item': item,
+                    'kr_text': kr_text,
+                    'kr_path': kr_path,
+                    'en_path': en_path
                 })
+        
+        print(f"Found {len(eval_items)} pairs to evaluate. Processing in batches of {batch_size}...")
+        
+        for i in tqdm(range(0, len(eval_items), batch_size), desc="Evaluating"):
+            batch = eval_items[i:i+batch_size]
+            
+            texts = [b['kr_text'] for b in batch]
+            
+            # Load images safely
+            kr_images = []
+            en_images = []
+            valid_indices = []
+            
+            for idx, b in enumerate(batch):
+                try:
+                    k_img = Image.open(b['kr_path']).convert("RGB")
+                    e_img = Image.open(b['en_path']).convert("RGB")
+                    kr_images.append(k_img)
+                    en_images.append(e_img)
+                    valid_indices.append(idx)
+                except Exception as e:
+                    print(f"Error loading image pair: {e}")
+                    continue
+            
+            if not valid_indices: continue
+            
+            # Process KR Images
+            try:
+                # Filter texts for valid images
+                valid_texts = [texts[idx] for idx in valid_indices]
                 
+                # 1. Evaluate KR Images
+                inputs_kr = processor(
+                    text=valid_texts, 
+                    images=kr_images, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=77
+                ).to(self.device)
+                
+                with torch.no_grad():
+                    outputs_kr = model(**inputs_kr)
+                    # logits_per_image: [batch_size, batch_size] -> diagonal is the pair score
+                    logits_kr = outputs_kr.logits_per_image.diag().cpu().numpy()
+                
+                # 2. Evaluate EN Images (against KR Text)
+                inputs_en = processor(
+                    text=valid_texts, 
+                    images=en_images, 
+                    return_tensors="pt", 
+                    padding=True, 
+                    truncation=True, 
+                    max_length=77
+                ).to(self.device)
+                
+                with torch.no_grad():
+                    outputs_en = model(**inputs_en)
+                    logits_en = outputs_en.logits_per_image.diag().cpu().numpy()
+                
+                # Store results
+                for v_idx, score_k, score_e in zip(valid_indices, logits_kr, logits_en):
+                    original_item = batch[v_idx]['raw_item']
+                    results.append({
+                        "category": original_item.get('eval_category', 'unknown'),
+                        "kr_text": batch[v_idx]['kr_text'],
+                        "score_kr_gen": float(score_k),
+                        "score_en_gen": float(score_e)
+                    })
+                    
+            except Exception as e:
+                print(f"Batch evaluation error: {e}")
+                continue
+
         if results:
             df = pd.DataFrame(results)
             
