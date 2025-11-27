@@ -232,7 +232,22 @@ class AlignmentEvaluator:
             print("No valid English prompts to generate.")
             return
 
-        chunks = np.array_split(valid_samples, num_gpus)
+        # Check if any images need to be generated
+        files_to_generate = []
+        for s in valid_samples:
+            phash = hashlib.md5(s['en_prompt'].encode('utf-8')).hexdigest()
+            path = os.path.join(output_dir, f"en_{phash}.jpg")
+            if not os.path.exists(path):
+                files_to_generate.append(s)
+        
+        if not files_to_generate:
+            print("All images already exist. Skipping generation.")
+            return
+            
+        print(f"Need to generate {len(files_to_generate)} images out of {len(valid_samples)}.")
+        
+        # Use only needed samples for distribution
+        chunks = np.array_split(files_to_generate, num_gpus)
         chunks = [c.tolist() for c in chunks]
         
         # mp.set_start_method('spawn', force=True)  # Moved to main block to avoid runtime error
@@ -257,8 +272,8 @@ class AlignmentEvaluator:
             # Try loading local if possible, otherwise standard load
             # Note: KoCLIP usually isn't in our models_cache unless downloaded manually.
             # We assume internet access or pre-downloaded in HF cache.
-            model = CLIPModel.from_pretrained(self.koclip_model_name).to(self.device)
-            processor = CLIPProcessor.from_pretrained(self.koclip_model_name)
+            model = CLIPModel.from_pretrained(self.koclip_model_name, local_files_only=True).to(self.device)
+            processor = CLIPProcessor.from_pretrained(self.koclip_model_name, local_files_only=True)
         except Exception as e:
             print(f"Failed to load KoCLIP: {e}")
             return
