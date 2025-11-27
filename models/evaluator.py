@@ -51,7 +51,8 @@ class Evaluator:
         
         self.processor = AutoProcessor.from_pretrained(
             self.model_config["local_path"],
-            local_files_only=True
+            local_files_only=True,
+            padding_side="left"
         )
         tokenizer = getattr(self.processor, 'tokenizer', None)
         if tokenizer is not None:

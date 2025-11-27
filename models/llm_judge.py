@@ -58,7 +58,8 @@ class LLMJudge:
             )
             self.processor = AutoProcessor.from_pretrained(
                 self.judge_config["local_path"],
-                local_files_only=True
+                local_files_only=True,
+                padding_side="left"
             )
             tokenizer = getattr(self.processor, 'tokenizer', None)
             if tokenizer is not None:
@@ -80,7 +81,8 @@ class LLMJudge:
             
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.judge_config["local_path"],
-                local_files_only=True
+                local_files_only=True,
+                padding_side="left"
             )
             self.tokenizer.padding_side = 'left'
             if self.tokenizer.pad_token is None:
