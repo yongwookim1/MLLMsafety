@@ -236,12 +236,6 @@ class ImageAlignmentEvaluator:
         
         os.makedirs(self.args.output_dir, exist_ok=True)
         
-        out_csv = os.path.join(self.args.output_dir, "image_alignment_comparison.csv")
-        df.to_csv(out_csv, index=False, encoding='utf-8-sig')
-        
-        out_summary = os.path.join(self.args.output_dir, "image_alignment_summary.csv")
-        pd.DataFrame(category_results).to_csv(out_summary, index=False, encoding='utf-8-sig')
-        
         json_result = {
             "total_samples": len(df),
             "qwen_evaluated": len(df_qwen),
@@ -258,10 +252,7 @@ class ImageAlignmentEvaluator:
         with open(out_json, 'w', encoding='utf-8') as f:
             json.dump(json_result, f, ensure_ascii=False, indent=2)
         
-        print(f"\nResults saved:")
-        print(f"  - {out_csv}")
-        print(f"  - {out_summary}")
-        print(f"  - {out_json}")
+        print(f"\nResults saved: {out_json}")
 
 
 def main():
