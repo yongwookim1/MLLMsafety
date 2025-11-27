@@ -21,9 +21,9 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
     try:
         print(f"GPU {gpu_id}: Starting generation for {len(samples)} samples...")
         
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        # Since we set CUDA_VISIBLE_DEVICES, the target GPU will always be "cuda:0" inside this process
-        device_map = {"": "cuda:0"}
+        # Use specific GPU directly without CUDA_VISIBLE_DEVICES to avoid potential environment propagation issues in some setups
+        # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id) 
+        device_map = {"": f"cuda:{gpu_id}"}
         worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
         
         model = QwenVLModel(config_path, device_map=device_map)
@@ -181,9 +181,9 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], output_d
     try:
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
         
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        # Since we set CUDA_VISIBLE_DEVICES, the target GPU will always be "cuda:0" inside this process
-        device_map = {"": "cuda:0"}
+        # Use specific GPU directly without CUDA_VISIBLE_DEVICES
+        # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        device_map = {"": f"cuda:{gpu_id}"}
         worker_output_file = os.path.join(output_dir, f"evaluation_results_gpu_{gpu_id}.json")
         
         judge_model = LLMJudge(config_path, device_map=device_map)
@@ -435,6 +435,12 @@ class TTAEvaluationPipeline:
                 
         # Sort by sample ID to maintain order consistency
         all_results.sort(key=lambda x: x['sample_id'])
+
+        # Remove duplicates based on sample_id, keeping the last occurrence (newest)
+        unique_results = {}
+        for r in all_results:
+            unique_results[r['sample_id']] = r
+        all_results = list(unique_results.values())
         
         with open(self.responses_file, "w", encoding="utf-8") as f:
             json.dump(all_results, f, ensure_ascii=False, indent=2)
@@ -500,6 +506,13 @@ class TTAEvaluationPipeline:
                     all_results.extend(worker_results)
                     
         all_results.sort(key=lambda x: x['sample_id'])
+
+        # Remove duplicates based on sample_id
+        unique_results = {}
+        for r in all_results:
+            unique_results[r['sample_id']] = r
+        all_results = list(unique_results.values())
+
         self._save_results(all_results)
         print(f"Distributed Evaluation complete. Results saved to {self.output_dir}")
 
