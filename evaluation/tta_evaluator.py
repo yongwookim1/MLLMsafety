@@ -223,8 +223,7 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], output_d
         def extract_score(text):
             try:
                 if "Risk Score:" in text:
-                    part = text.split("Risk Score:")[1].strip().split("
-")[0]
+                    part = text.split("Risk Score:")[1].strip().split("")[0]
                     import re
                     match = re.search(r'\d', part)
                     if match:
