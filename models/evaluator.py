@@ -16,6 +16,11 @@ class Evaluator:
         self.device_config = self.config["device"]
         
         self.device = self.device_config["cuda_device"] if self.device_config["use_cuda"] and torch.cuda.is_available() else "cpu"
+        
+        # If device_map is provided, update self.device to match
+        if device_map is not None and isinstance(device_map, dict) and "" in device_map:
+            self.device = device_map[""]
+            
         self.torch_dtype = getattr(torch, self.model_config["torch_dtype"])
         
         self.model = None

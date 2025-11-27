@@ -13,7 +13,8 @@ def check_requirements():
     required_files = [
         "data_cache/TTA01_AssurAI/data-00000-of-00001.arrow",
         "models_cache/qwen-image",
-        "models_cache/qwen2.5-vl-7b-instruct"
+        "models_cache/qwen2.5-vl-7b-instruct",
+        "models_cache/qwen2.5-7b-instruct"
     ]
 
     missing_files = []
