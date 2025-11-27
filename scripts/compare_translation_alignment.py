@@ -13,11 +13,9 @@ from typing import List, Dict, Any
 import torch.multiprocessing as mp
 from transformers import AutoModelForCausalLM, AutoTokenizer, CLIPModel, CLIPProcessor
 
-# Add parent directory to path to import modules from root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data.tta_loader import TTALoader
 
-# Set random seed
 random.seed(42)
 np.random.seed(42)
 torch.manual_seed(42)
@@ -26,17 +24,11 @@ class AlignmentEvaluator:
     def __init__(self, args):
         self.args = args
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        # Define Local Model Paths
         self.llm_path = os.path.abspath("./models_cache/qwen2.5-7b-instruct")
         self.image_model_path = os.path.abspath("./models_cache/qwen-image")
-        
-        # Note: KoCLIP might not be in models_cache, so we allow it to download if missing,
-        # or you can map it to a local path if you have one.
         self.koclip_model_name = os.path.abspath("./models_cache/clip-vit-large-patch14-ko")
         
     def load_and_sample_data(self, target_count=500) -> List[Dict]:
-        """Load TTA dataset and perform stratified sampling by category."""
         print("Loading TTA dataset...")
         loader = TTALoader()
         all_samples = loader.get_all_samples()
@@ -44,13 +36,8 @@ class AlignmentEvaluator:
         if not all_samples:
             print("No samples loaded.")
             return []
-            
-        # Debug: Print first item keys to help identify correct fields
-        # print(f"First item keys: {list(all_samples[0].keys())}")
         
-        # Group by category
         category_groups = {}
-        # Extended list of potential keys for text and category
         text_keys = ['input_prompt', 'prompt', 'text', 'question', 'instruction', 'input', 'content', 'user_prompt']
         cat_keys = ['risk', 'category', 'keyword', 'task', 'source', 'type', 'subcategory']
 
@@ -65,7 +52,6 @@ class AlignmentEvaluator:
                 
             item['proc_text'] = text
             
-            # Determine category
             cat = 'unknown'
             for k in cat_keys:
                 if item.get(k):
@@ -79,7 +65,6 @@ class AlignmentEvaluator:
             
         print(f"Found {len(category_groups)} categories: {list(category_groups.keys())[:5]}...")
         
-        # Stratified sampling
         sampled_data = []
         categories = list(category_groups.keys())
         if not categories: return []
@@ -92,8 +77,7 @@ class AlignmentEvaluator:
             cat_items = category_groups[cat]
             selected = random.sample(cat_items, sample_size) if len(cat_items) >= sample_size else cat_items
             sampled_data.extend(selected)
-            
-        # Fill remainder
+        
         if len(sampled_data) < target_count:
             remaining = [x for x in all_samples if x not in sampled_data and (x.get('prompt') or x.get('text'))]
             needed = target_count - len(sampled_data)
@@ -107,11 +91,9 @@ class AlignmentEvaluator:
 
     @staticmethod
     def _translation_worker(samples, llm_path, output_file):
-        """Worker process for translation to ensure memory cleanup."""
         print(f"Loading Qwen2.5 LLM from {llm_path}...")
         
         try:
-            # Re-import necessary modules in worker
             from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
             
@@ -131,7 +113,6 @@ class AlignmentEvaluator:
             system_prompt = "You are a translator. Translate the Korean text to English concisely."
             batch_size = 64
             
-            # Filter items needing translation
             items_to_process = []
             for idx, item in enumerate(samples):
                 if 'en_prompt' not in item:
@@ -167,11 +148,9 @@ class AlignmentEvaluator:
                     generated_ids = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
                     decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
                 
-                # Update original samples list using indices
                 for idx, en_text in zip(batch_indices, decoded):
                     samples[idx]['en_prompt'] = en_text.strip()
             
-            # Save results
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(samples, f, ensure_ascii=False, indent=2)
@@ -183,10 +162,8 @@ class AlignmentEvaluator:
             traceback.print_exc()
 
     def translate_prompts(self, samples: List[Dict]) -> List[Dict]:
-        """Translate Korean prompts to English using local Qwen2.5."""
         cache_file = os.path.join(self.args.output_dir, "translated_samples.json")
         
-        # Try loading from cache first
         if os.path.exists(cache_file):
             print(f"Loading cached translations from {cache_file}...")
             try:
@@ -202,7 +179,6 @@ class AlignmentEvaluator:
 
         print("Starting translation in separate process...")
         
-        # Run translation in a separate process to ensure memory cleanup
         p = mp.Process(
             target=self._translation_worker,
             args=(samples, self.llm_path, cache_file)
@@ -213,8 +189,7 @@ class AlignmentEvaluator:
         if p.exitcode != 0:
             print("Translation process failed.")
             return samples
-            
-        # Reload from cache after worker finishes
+        
         if os.path.exists(cache_file):
              with open(cache_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
@@ -222,13 +197,13 @@ class AlignmentEvaluator:
         return samples
 
     @staticmethod
-    def _generate_worker(rank, chunk_data, output_dir, model_path, batch_size=4):
-        """Worker for distributed generation with BATCH PROCESSING."""
+    def _generate_worker(rank, chunk_data, output_dir, model_path, batch_size=1):
         try:
+            import gc
             device_str = f"cuda:{rank}"
             print(f"[GPU {rank}] Loading model from {model_path}...")
             
-            from diffusers import DiffusionPipeline, DPMSolverMultistepScheduler
+            from diffusers import DiffusionPipeline
             
             if not os.path.exists(model_path):
                  print(f"[GPU {rank}] Error: Model path not found: {model_path}")
@@ -240,8 +215,9 @@ class AlignmentEvaluator:
                 local_files_only=True
             ).to(device_str)
             
-            # pipeline.scheduler = DPMSolverMultistepScheduler.from_config(pipeline.scheduler.config)
             pipeline.enable_attention_slicing(1)
+            if hasattr(pipeline, 'enable_vae_slicing'):
+                pipeline.enable_vae_slicing()
             
             os.makedirs(output_dir, exist_ok=True)
             
@@ -264,7 +240,7 @@ class AlignmentEvaluator:
                 with torch.autocast("cuda", dtype=torch.bfloat16):
                     images = pipeline(
                         prompt=needed_prompts, 
-                        num_inference_steps=20,
+                        num_inference_steps=28,
                         guidance_scale=4.0
                     ).images
                 
@@ -273,10 +249,16 @@ class AlignmentEvaluator:
                     phash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
                     path = os.path.join(output_dir, f"en_{phash}.jpg")
                     img.save(path)
+                
+                del images
+                gc.collect()
+                torch.cuda.empty_cache()
             
             print(f"[GPU {rank}] Done.")
         except Exception as e:
             print(f"[GPU {rank}] Error: {e}")
+            import traceback
+            traceback.print_exc()
 
     def generate_images_distributed(self, samples: List[Dict], batch_size=2):
         num_gpus = torch.cuda.device_count()
@@ -290,7 +272,6 @@ class AlignmentEvaluator:
             print("No valid English prompts to generate.")
             return
 
-        # Check if any images need to be generated
         files_to_generate = []
         for s in valid_samples:
             phash = hashlib.md5(s['en_prompt'].encode('utf-8')).hexdigest()
@@ -308,11 +289,9 @@ class AlignmentEvaluator:
         gc.collect()
         torch.cuda.empty_cache()
         
-        # Use only needed samples for distribution
         chunks = np.array_split(files_to_generate, num_gpus)
         chunks = [c.tolist() for c in chunks]
         
-        # mp.set_start_method('spawn', force=True)  # Moved to main block to avoid runtime error
         procs = []
         for r in range(num_gpus):
             p = mp.Process(
@@ -324,7 +303,6 @@ class AlignmentEvaluator:
         for p in procs: p.join()
 
     def evaluate_alignment(self, samples: List[Dict]):
-        """Evaluate BOTH Korean and English images against the ORIGINAL KOREAN TEXT using Batch Processing."""
         print(f"Starting evaluation with KoCLIP ({self.koclip_model_name})...")
         
         kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
@@ -338,16 +316,15 @@ class AlignmentEvaluator:
             return
 
         results = []
-        batch_size = 2 # Reduced batch size for evaluation safety
+        batch_size = 2
         
-        # Prepare data list
         eval_items = []
         for item in samples:
             kr_text = item.get('proc_text')
             if not kr_text: continue
             
             en_prompt = item.get('en_prompt')
-            if not en_prompt: continue # Skip if no translation
+            if not en_prompt: continue
             
             kr_hash = hashlib.md5(kr_text.encode('utf-8')).hexdigest()
             en_hash = hashlib.md5(en_prompt.encode('utf-8')).hexdigest()
@@ -355,7 +332,6 @@ class AlignmentEvaluator:
             kr_path = os.path.join(kr_img_dir, f"{kr_hash}.jpg")
             en_path = os.path.join(en_img_dir, f"en_{en_hash}.jpg")
             
-            # Only add if BOTH images exist
             if os.path.exists(kr_path) and os.path.exists(en_path):
                 eval_items.append({
                     'raw_item': item,
@@ -371,7 +347,6 @@ class AlignmentEvaluator:
             
             texts = [b['kr_text'] for b in batch]
             
-            # Load images safely
             kr_images = []
             en_images = []
             valid_indices = []
@@ -389,12 +364,9 @@ class AlignmentEvaluator:
             
             if not valid_indices: continue
             
-            # Process KR Images
             try:
-                # Filter texts for valid images
                 valid_texts = [texts[idx] for idx in valid_indices]
                 
-                # 1. Evaluate KR Images
                 inputs_kr = processor(
                     text=valid_texts, 
                     images=kr_images, 
@@ -406,10 +378,8 @@ class AlignmentEvaluator:
                 
                 with torch.no_grad():
                     outputs_kr = model(**inputs_kr)
-                    # logits_per_image: [batch_size, batch_size] -> diagonal is the pair score
                     logits_kr = outputs_kr.logits_per_image.diag().cpu().numpy()
                 
-                # 2. Evaluate EN Images (against KR Text)
                 inputs_en = processor(
                     text=valid_texts, 
                     images=en_images, 
@@ -423,7 +393,6 @@ class AlignmentEvaluator:
                     outputs_en = model(**inputs_en)
                     logits_en = outputs_en.logits_per_image.diag().cpu().numpy()
                 
-                # Store results
                 for v_idx, score_k, score_e in zip(valid_indices, logits_kr, logits_en):
                     original_item = batch[v_idx]['raw_item']
                     results.append({
@@ -476,17 +445,11 @@ def main():
     
     evaluator = AlignmentEvaluator(args)
     
-    # 1. Data Load
     samples = evaluator.load_and_sample_data(args.samples)
     if not samples: return
     
-    # 2. Translate
     samples = evaluator.translate_prompts(samples)
-    
-    # 3. Generate
     evaluator.generate_images_distributed(samples, batch_size=args.batch_size)
-    
-    # 4. Evaluate
     evaluator.evaluate_alignment(samples)
 
 if __name__ == "__main__":
