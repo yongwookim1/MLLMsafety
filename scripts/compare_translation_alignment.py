@@ -55,15 +55,37 @@ class AlignmentEvaluator:
         loader = TTALoader()
         all_samples = loader.get_all_samples()
         
+        if not all_samples:
+            print("No samples loaded.")
+            return []
+            
+        # Debug: Print first item keys to help identify correct fields
+        print(f"First item keys: {list(all_samples[0].keys())}")
+        
         # Group by category
         category_groups = {}
+        # Extended list of potential keys for text and category
+        text_keys = ['input_prompt', 'prompt', 'text', 'question', 'instruction', 'input', 'content', 'user_prompt']
+        cat_keys = ['risk', 'category', 'keyword', 'task', 'source', 'type', 'subcategory']
+
         for item in all_samples:
-            text = item.get('prompt') or item.get('text') or item.get('question')
+            text = None
+            for k in text_keys:
+                if item.get(k):
+                    text = item.get(k)
+                    break
+            
             if not text: continue
                 
             item['proc_text'] = text
-            # Store category for later analysis
-            cat = item.get('category') or item.get('keyword') or 'unknown'
+            
+            # Determine category
+            cat = 'unknown'
+            for k in cat_keys:
+                if item.get(k):
+                    cat = item.get(k)
+                    break
+            
             item['eval_category'] = cat
             
             if cat not in category_groups: category_groups[cat] = []
