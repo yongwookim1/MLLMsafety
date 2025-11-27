@@ -60,6 +60,15 @@ class LLMJudge:
                 self.judge_config["local_path"],
                 local_files_only=True
             )
+            tokenizer = getattr(self.processor, 'tokenizer', None)
+            if tokenizer is not None:
+                tokenizer.padding_side = 'left'
+                if tokenizer.pad_token is None:
+                    tokenizer.pad_token = tokenizer.eos_token
+            if hasattr(self.processor, 'padding_side'):
+                self.processor.padding_side = 'left'
+            if getattr(self.processor, 'pad_token', None) is None and hasattr(self.processor, 'eos_token'):
+                self.processor.pad_token = self.processor.eos_token
         else:
             print("Loading Text-only model...")
             self.model = AutoModelForCausalLM.from_pretrained(
@@ -73,6 +82,9 @@ class LLMJudge:
                 self.judge_config["local_path"],
                 local_files_only=True
             )
+            self.tokenizer.padding_side = 'left'
+            if self.tokenizer.pad_token is None:
+                self.tokenizer.pad_token = self.tokenizer.eos_token
         
         print("Judge Model loaded")
     

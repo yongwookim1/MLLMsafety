@@ -53,7 +53,16 @@ class Evaluator:
             self.model_config["local_path"],
             local_files_only=True
         )
-        
+        tokenizer = getattr(self.processor, 'tokenizer', None)
+        if tokenizer is not None:
+            tokenizer.padding_side = 'left'
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+        if hasattr(self.processor, 'padding_side'):
+            self.processor.padding_side = 'left'
+        if getattr(self.processor, 'pad_token', None) is None and hasattr(self.processor, 'eos_token'):
+            self.processor.pad_token = self.processor.eos_token
+
         print("Model loaded")
     
     def run_inference(
