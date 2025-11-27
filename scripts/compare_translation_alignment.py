@@ -105,18 +105,93 @@ class AlignmentEvaluator:
         print(f"Sampled {len(sampled_data)} items.")
         return sampled_data
 
+    @staticmethod
+    def _translation_worker(samples, llm_path, output_file):
+        """Worker process for translation to ensure memory cleanup."""
+        print(f"Loading Qwen2.5 LLM from {llm_path}...")
+        
+        try:
+            # Re-import necessary modules in worker
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            import torch
+            
+            if not os.path.exists(llm_path):
+                print(f"Error: LLM not found at {llm_path}")
+                return
+            
+            tokenizer = AutoTokenizer.from_pretrained(llm_path, local_files_only=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                llm_path, 
+                device_map="auto", 
+                torch_dtype=torch.bfloat16,
+                local_files_only=True
+            )
+            
+            print("Translating prompts...")
+            system_prompt = "You are a translator. Translate the Korean text to English concisely."
+            batch_size = 64
+            
+            # Filter items needing translation
+            items_to_process = []
+            for idx, item in enumerate(samples):
+                if 'en_prompt' not in item:
+                    items_to_process.append((idx, item))
+            
+            if not items_to_process:
+                print("Nothing to translate in worker.")
+                return
+
+            for i in tqdm(range(0, len(items_to_process), batch_size), desc="Translating"):
+                batch_tuples = items_to_process[i:i+batch_size]
+                batch_indices = [t[0] for t in batch_tuples]
+                batch_items = [t[1] for t in batch_tuples]
+                
+                texts = [item['proc_text'] for item in batch_items]
+                
+                prompts = []
+                for t in texts:
+                    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": t}]
+                    prompts.append(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
+                
+                inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left").to(model.device)
+                
+                with torch.no_grad():
+                    generated_ids = model.generate(
+                        **inputs, 
+                        max_new_tokens=256, 
+                        do_sample=False,
+                        temperature=None,
+                        top_p=None,
+                        top_k=None
+                    )
+                    generated_ids = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
+                    decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+                
+                # Update original samples list using indices
+                for idx, en_text in zip(batch_indices, decoded):
+                    samples[idx]['en_prompt'] = en_text.strip()
+            
+            # Save results
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(samples, f, ensure_ascii=False, indent=2)
+            print(f"Translations saved to {output_file}")
+            
+        except Exception as e:
+            print(f"Translation Worker Error: {e}")
+            import traceback
+            traceback.print_exc()
+
     def translate_prompts(self, samples: List[Dict]) -> List[Dict]:
         """Translate Korean prompts to English using local Qwen2.5."""
         cache_file = os.path.join(self.args.output_dir, "translated_samples.json")
         
-        # Try loading from cache
+        # Try loading from cache first
         if os.path.exists(cache_file):
             print(f"Loading cached translations from {cache_file}...")
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     cached_samples = json.load(f)
-                # Simple validation: check if count matches roughly or just use it
-                # Since seed is fixed, we can assume samples are consistent if count matches
                 if len(cached_samples) == len(samples):
                     print("Cache loaded successfully. Skipping translation.")
                     return cached_samples
@@ -125,72 +200,25 @@ class AlignmentEvaluator:
             except Exception as e:
                 print(f"Error loading cache: {e}")
 
-        print(f"Loading Qwen2.5 LLM from {self.llm_path}...")
+        print("Starting translation in separate process...")
         
-        if not os.path.exists(self.llm_path):
-            print(f"Error: LLM not found at {self.llm_path}")
+        # Run translation in a separate process to ensure memory cleanup
+        p = mp.Process(
+            target=self._translation_worker,
+            args=(samples, self.llm_path, cache_file)
+        )
+        p.start()
+        p.join()
+        
+        if p.exitcode != 0:
+            print("Translation process failed.")
             return samples
+            
+        # Reload from cache after worker finishes
+        if os.path.exists(cache_file):
+             with open(cache_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
         
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(self.llm_path, local_files_only=True)
-            model = AutoModelForCausalLM.from_pretrained(
-                self.llm_path, 
-                device_map="auto", 
-                torch_dtype=torch.bfloat16,
-                local_files_only=True
-            )
-        except Exception as e:
-            print(f"Translation Model Load Error: {e}")
-            return samples
-
-        print("Translating prompts...")
-        system_prompt = "You are a translator. Translate the Korean text to English concisely."
-        
-        batch_size = 64  # Increased batch size for 80GB GPU
-        
-        for i in tqdm(range(0, len(samples), batch_size), desc="Translating"):
-            batch = samples[i:i+batch_size]
-            batch_to_process = [item for item in batch if 'en_prompt' not in item]
-            if not batch_to_process: continue
-            
-            texts = [item['proc_text'] for item in batch_to_process]
-            
-            prompts = []
-            for t in texts:
-                messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": t}]
-                prompts.append(tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))
-            
-            inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left").to(model.device)
-            
-            with torch.no_grad():
-                generated_ids = model.generate(
-                    **inputs, 
-                    max_new_tokens=256, 
-                    do_sample=False,
-                    temperature=None,
-                    top_p=None,
-                    top_k=None
-                )
-                generated_ids = [out[len(inp):] for inp, out in zip(inputs.input_ids, generated_ids)]
-                decoded = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-            
-            for item, en_text in zip(batch_to_process, decoded):
-                item['en_prompt'] = en_text.strip()
-            
-        del model, tokenizer
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        # Save results to cache
-        try:
-            os.makedirs(self.args.output_dir, exist_ok=True)
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(samples, f, ensure_ascii=False, indent=2)
-            print(f"Translations saved to {cache_file}")
-        except Exception as e:
-            print(f"Error saving translation cache: {e}")
-
         return samples
 
     @staticmethod
