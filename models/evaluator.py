@@ -66,6 +66,16 @@ class Evaluator:
 
         print("Model loaded")
     
+    def _resize_image_if_needed(self, image: Image.Image, max_size: int = 1024) -> Image.Image:
+        """Resize image if it exceeds the maximum dimension to prevent OOM."""
+        width, height = image.size
+        if max(width, height) > max_size:
+            ratio = max_size / max(width, height)
+            new_size = (int(width * ratio), int(height * ratio))
+            # Use LANCZOS for high quality downsampling
+            return image.resize(new_size, Image.Resampling.LANCZOS)
+        return image
+
     def run_inference(
         self,
         prompt: str,
@@ -79,6 +89,11 @@ class Evaluator:
     def run_batch(self, requests: List[Dict[str, Any]]) -> List[str]:
         if not requests:
             return []
+
+        # Pre-process images to avoid OOM
+        for req in requests:
+            if req.get("use_image") and req.get("image") is not None:
+                req["image"] = self._resize_image_if_needed(req["image"])
 
         responses: List[Optional[str]] = [None] * len(requests)
 

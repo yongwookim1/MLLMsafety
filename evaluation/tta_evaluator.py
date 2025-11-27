@@ -376,16 +376,33 @@ class TTAEvaluationPipeline:
         
         if limit:
             all_samples = all_samples[:limit]
-        
+
+        # Check for existing results to avoid re-generation
+        existing_results = []
+        if os.path.exists(self.responses_file):
+            try:
+                with open(self.responses_file, "r", encoding="utf-8") as f:
+                    existing_results = json.load(f)
+                print(f"Found {len(existing_results)} existing results in {self.responses_file}")
+            except Exception as e:
+                print(f"Error loading existing results: {e}")
+
+        existing_ids = {r['sample_id'] for r in existing_results}
+        samples_to_process = [s for s in all_samples if s.get('id') not in existing_ids]
+
+        if not samples_to_process:
+            print("All samples have been processed. Skipping generation.")
+            return
+
         # Split samples
-        chunk_size = math.ceil(len(all_samples) / num_gpus)
-        chunks = [all_samples[i:i + chunk_size] for i in range(0, len(all_samples), chunk_size)]
+        chunk_size = math.ceil(len(samples_to_process) / num_gpus)
+        chunks = [samples_to_process[i:i + chunk_size] for i in range(0, len(samples_to_process), chunk_size)]
         
         # Ensure we don't have more chunks than GPUs (if samples < num_gpus)
         valid_chunks = [c for c in chunks if len(c) > 0]
         active_gpus = len(valid_chunks)
         
-        print(f"Distributing {len(all_samples)} samples across {active_gpus} GPUs...")
+        print(f"Distributing {len(samples_to_process)} samples across {active_gpus} GPUs...")
         
         ctx = mp.get_context('spawn')
         processes = []
@@ -404,7 +421,7 @@ class TTAEvaluationPipeline:
             p.join()
             
         # Merge results from all GPU files
-        all_results = []
+        all_results = existing_results[:]
         print("Merging distributed results...")
         for gpu_id in range(active_gpus):
             worker_file = os.path.join(self.output_dir, f"generated_responses_gpu_{gpu_id}.json")
@@ -430,13 +447,31 @@ class TTAEvaluationPipeline:
             
         with open(self.responses_file, "r", encoding="utf-8") as f:
             responses = json.load(f)
+
+        # Check for existing evaluation results
+        output_file = os.path.join(self.output_dir, "evaluation_results.json")
+        existing_results = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, "r", encoding="utf-8") as f:
+                    existing_results = json.load(f)
+                print(f"Found {len(existing_results)} existing evaluation results.")
+            except Exception as e:
+                print(f"Error loading existing evaluation results: {e}")
+
+        existing_ids = {r['sample_id'] for r in existing_results}
+        responses_to_process = [r for r in responses if r['sample_id'] not in existing_ids]
+
+        if not responses_to_process:
+            print("All samples have been evaluated. Skipping evaluation.")
+            return
             
-        chunk_size = math.ceil(len(responses) / num_gpus)
-        chunks = [responses[i:i + chunk_size] for i in range(0, len(responses), chunk_size)]
+        chunk_size = math.ceil(len(responses_to_process) / num_gpus)
+        chunks = [responses_to_process[i:i + chunk_size] for i in range(0, len(responses_to_process), chunk_size)]
         valid_chunks = [c for c in chunks if len(c) > 0]
         active_gpus = len(valid_chunks)
         
-        print(f"Distributing evaluation of {len(responses)} samples across {active_gpus} GPUs...")
+        print(f"Distributing evaluation of {len(responses_to_process)} samples across {active_gpus} GPUs...")
         
         ctx = mp.get_context('spawn')
         processes = []
@@ -453,7 +488,7 @@ class TTAEvaluationPipeline:
             p.join()
             
         # Merge results
-        all_results = []
+        all_results = existing_results[:]
         print("Merging distributed evaluation results...")
         for gpu_id in range(active_gpus):
             worker_file = os.path.join(self.output_dir, f"evaluation_results_gpu_{gpu_id}.json")
@@ -471,7 +506,6 @@ class TTAEvaluationPipeline:
         """Stage 1: Generate responses using the VLM (Target Model) - Single GPU"""
         print("=== Stage 1: Generation (Target Model) - Single GPU ===")
         
-        self.target_model = QwenVLModel(self.config_path)
         mapping = self.load_image_mapping()
         text_samples = self.loader.get_text_samples()
         image_samples = self.loader.get_image_samples()
@@ -480,8 +514,27 @@ class TTAEvaluationPipeline:
         if limit:
             all_samples = all_samples[:limit]
             
-        generated_results = []
-        for sample in tqdm(all_samples, desc="Generating"):
+        # Check for existing results
+        existing_results = []
+        if os.path.exists(self.responses_file):
+            try:
+                with open(self.responses_file, "r", encoding="utf-8") as f:
+                    existing_results = json.load(f)
+                print(f"Found {len(existing_results)} existing results.")
+            except Exception:
+                pass
+        
+        existing_ids = {r['sample_id'] for r in existing_results}
+        samples_to_process = [s for s in all_samples if s.get('id') not in existing_ids]
+        
+        if not samples_to_process:
+            print("All samples have been processed. Skipping generation.")
+            return
+
+        self.target_model = QwenVLModel(self.config_path)
+        generated_results = existing_results[:]
+
+        for sample in tqdm(samples_to_process, desc="Generating"):
             # ... (Same implementation as before, duplicated for simplicity or refactored if preferred)
             # To keep code concise, I'll just call the worker logic in single process or inline it.
             # But since I modified the class structure, let's just reuse the distributed logic with 1 chunk?
@@ -555,10 +608,27 @@ class TTAEvaluationPipeline:
         with open(self.responses_file, "r", encoding="utf-8") as f:
             responses = json.load(f)
             
+        output_file = os.path.join(self.output_dir, "evaluation_results.json")
+        existing_results = []
+        if os.path.exists(output_file):
+            try:
+                with open(output_file, "r", encoding="utf-8") as f:
+                    existing_results = json.load(f)
+                print(f"Found {len(existing_results)} existing evaluation results.")
+            except Exception:
+                pass
+
+        existing_ids = {r['sample_id'] for r in existing_results}
+        responses_to_process = [r for r in responses if r['sample_id'] not in existing_ids]
+
+        if not responses_to_process:
+            print("All samples have been evaluated. Skipping evaluation.")
+            return
+
         self.judge_model = LLMJudge(self.config_path)
-        results = []
+        results = existing_results[:]
         
-        for entry in tqdm(responses, desc="Judging"):
+        for entry in tqdm(responses_to_process, desc="Judging"):
             prompt = entry.get('prompt')
             risk_category = entry.get('risk_category')
             target_responses = entry.get('target_responses', {})
