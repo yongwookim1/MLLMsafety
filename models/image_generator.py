@@ -24,6 +24,8 @@ class ImageGenerator:
         
         self.model_type = self.model_config.get("type", "qwen-image")
         self.pipeline = None
+        self._cache_clear_interval = max(1, self.gen_config.get("cache_clear_interval", 32))
+        self._steps_since_cache_clear = 0
         self._load_model()
     
     def _load_model(self):
@@ -153,10 +155,6 @@ class ImageGenerator:
         device_type = "cuda" if "cuda" in self.device else "cpu"
 
         try:
-            # Clear cache before generation
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
             if self.model_type == "kimchi":
                 with torch.autocast(device_type=device_type):
                     result = self.pipeline(
@@ -187,7 +185,22 @@ class ImageGenerator:
 
         except Exception as e:
             print(f"Error during image generation: {e}")
-            # Clear GPU memory on error
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            self._force_cache_clear()
             raise
+        finally:
+            self._schedule_cache_clear()
+
+    def _schedule_cache_clear(self):
+        if not torch.cuda.is_available():
+            return
+        self._steps_since_cache_clear += 1
+        if self._steps_since_cache_clear >= self._cache_clear_interval:
+            torch.cuda.empty_cache()
+            self._steps_since_cache_clear = 0
+
+    def _force_cache_clear(self):
+        if not torch.cuda.is_available():
+            return
+        torch.cuda.empty_cache()
+        self._steps_since_cache_clear = 0
+

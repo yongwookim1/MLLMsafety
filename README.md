@@ -80,6 +80,7 @@ Edit `configs/config.yaml` to adjust:
 - Model paths and settings
 - Image generation parameters
 - Evaluation settings
+- Batch sizes (`generation_batch_size`, `judge_batch_size`) to match your GPU VRAM
 - Prompt templates / prompt IDs (KoBBQ instructions)
 - Output directories
 

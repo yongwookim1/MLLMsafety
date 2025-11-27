@@ -7,7 +7,6 @@ import math
 import torch
 import torch.multiprocessing as mp
 from tqdm import tqdm
-from PIL import Image
 
 # Add parent directory to path to allow imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,138 +14,179 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data.tta_loader import TTALoader
 from models.image_generator import ImageGenerator
 
-def image_generation_worker(gpu_id, samples, config_path, output_dir, queue):
+WORKER_FLUSH_INTERVAL = 32
+
+
+def _append_mapping_records(worker_output_path, records):
+    if not records:
+        return
+    os.makedirs(os.path.dirname(worker_output_path), exist_ok=True)
+    with open(worker_output_path, 'a', encoding='utf-8') as f:
+        for sample_id, payload in records.items():
+            record = {"sample_id": sample_id}
+            record.update(payload)
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _collect_worker_results(worker_files):
+    consolidated = {}
+    for file_path in worker_files:
+        if not os.path.exists(file_path):
+            continue
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                sample_id = record.pop('sample_id', None)
+                if sample_id:
+                    consolidated[sample_id] = record
+    return consolidated
+
+
+def _cleanup_worker_files(worker_files):
+    for file_path in worker_files:
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
+
+
+def image_generation_worker(gpu_id, samples, config_path, output_dir, worker_output_path, flush_interval=WORKER_FLUSH_INTERVAL):
     """Worker process for generating images on a specific GPU"""
+    local_mapping = {}
+
+    def flush():
+        if local_mapping:
+            _append_mapping_records(worker_output_path, local_mapping)
+            local_mapping.clear()
+
     try:
-        # Initialize generator on specific GPU
-        generator = ImageGenerator(config_path, device=f"cuda:{gpu_id}")
-        local_mapping = {}
-        
-        # Use position to prevent tqdm bars from overlapping
+        device = f"cuda:{gpu_id}" if torch.cuda.is_available() else 'cpu'
+        generator = None
+
         for sample in tqdm(samples, position=gpu_id, desc=f"GPU {gpu_id}"):
             sample_id = sample.get('id')
             prompt = sample.get('input_prompt')
-            
-            if not prompt:
+
+            if not sample_id or not prompt:
                 continue
-                
-            # Create a safe filename using hash
+
             prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
             filename = f"{sample_id}_{prompt_hash}.jpg"
             filepath = os.path.join(output_dir, filename)
-            
-            # Generate if not exists
+
             if not os.path.exists(filepath):
                 try:
-                    # Use fixed seed for reproducibility
-                    seed = int(hashlib.md5(prompt.encode('utf-8')).hexdigest(), 16) % (2**32)
+                    if generator is None:
+                        generator = ImageGenerator(config_path, device=device)
+                    seed = int(prompt_hash, 16) % (2**32)
                     image = generator.generate(prompt, seed=seed)
                     image.save(filepath)
                 except Exception as e:
                     print(f"Error generating image for {sample_id} on GPU {gpu_id}: {e}")
                     continue
-            
+
             local_mapping[sample_id] = {
-                "image_path": filepath,
-                "prompt": prompt,
-                "original_modality": "text"
+                'image_path': filepath,
+                'prompt': prompt,
+                'original_modality': 'text'
             }
-            
-        queue.put(local_mapping)
-        
+
+            if len(local_mapping) >= flush_interval:
+                flush()
+
     except Exception as e:
         print(f"Worker process on GPU {gpu_id} failed: {e}")
-        queue.put({})
+    finally:
+        flush()
+
 
 def process_tta_dataset():
-    # Load configuration
-    config_path = "configs/config.yaml"
+    config_path = 'configs/config.yaml'
     if not os.path.exists(config_path):
         print(f"Config file not found at {config_path}")
         return
 
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f)
-        
-    output_dir = os.path.join("outputs", "tta_images")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        _ = yaml.safe_load(f)
+
+    output_dir = os.path.join('outputs', 'tta_images')
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Initialize Loader
+
     try:
         loader = TTALoader(config_path)
     except Exception as e:
         print(f"Loader initialization failed: {e}")
         return
-    
-    # Process text samples
+
     text_samples = loader.get_text_samples()
     print(f"Found {len(text_samples)} text samples to augment with images.")
-    
-    mapping = {}
-    mapping_file = os.path.join("outputs", "tta_image_mapping.json")
-    
-    # Check available GPUs
+
+    mapping_file = os.path.join('outputs', 'tta_image_mapping.json')
+    worker_files = []
+
     num_gpus = torch.cuda.device_count()
-    
+
     if num_gpus > 1:
         print(f"🚀 Detected {num_gpus} GPUs. Starting parallel generation...")
-        
-        # Use spawn start method for PyTorch CUDA compatibility
         ctx = mp.get_context('spawn')
-        queue = ctx.Queue()
         processes = []
-        
-        # Split samples into chunks
-        chunk_size = math.ceil(len(text_samples) / num_gpus)
-        
+        chunk_size = max(1, math.ceil(len(text_samples) / num_gpus))
+
         for i in range(num_gpus):
             start_idx = i * chunk_size
             end_idx = min((i + 1) * chunk_size, len(text_samples))
             chunk = text_samples[start_idx:end_idx]
-            
+
             if not chunk:
                 continue
-                
+
+            worker_file = os.path.join(output_dir, f'mapping_gpu_{i}.jsonl')
+            if os.path.exists(worker_file):
+                os.remove(worker_file)
+            worker_files.append(worker_file)
+
             p = ctx.Process(
                 target=image_generation_worker,
-                args=(i, chunk, config_path, output_dir, queue)
+                args=(i, chunk, config_path, output_dir, worker_file)
             )
             p.start()
             processes.append(p)
-        
-        # Collect results
-        print("Waiting for workers to finish...")
-        for _ in range(len(processes)):
-            local_map = queue.get()
-            mapping.update(local_map)
-            
+
+        print('Waiting for workers to finish...')
         for p in processes:
             p.join()
-            
-    else:
-        print("Running on single GPU/CPU...")
-        # Fallback to single process logic (using the worker function for simplicity)
-        queue = mp.Queue()
-        image_generation_worker(0, text_samples, config_path, output_dir, queue)
-        mapping = queue.get()
 
-    # Load existing mapping to merge if needed (optional, based on requirements)
-    # Here we simply overwrite/save the current run's result or merge with old file
+    else:
+        print('Running on single GPU/CPU...')
+        worker_file = os.path.join(output_dir, 'mapping_gpu_0.jsonl')
+        if os.path.exists(worker_file):
+            os.remove(worker_file)
+        worker_files.append(worker_file)
+        image_generation_worker(0, text_samples, config_path, output_dir, worker_file)
+
+    mapping = _collect_worker_results(worker_files)
+    _cleanup_worker_files(worker_files)
+
     if os.path.exists(mapping_file):
         try:
-            with open(mapping_file, "r", encoding="utf-8") as f:
+            with open(mapping_file, 'r', encoding='utf-8') as f:
                 old_mapping = json.load(f)
-                # Update old mapping with new results
-                old_mapping.update(mapping)
-                mapping = old_mapping
-        except:
+            old_mapping.update(mapping)
+            mapping = old_mapping
+        except Exception:
             pass
 
-    # Final save
-    with open(mapping_file, "w", encoding="utf-8") as f:
+    with open(mapping_file, 'w', encoding='utf-8') as f:
         json.dump(mapping, f, ensure_ascii=False, indent=2)
-    
+
     print(f"Processing complete. Mapping saved to {mapping_file}")
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     process_tta_dataset()
