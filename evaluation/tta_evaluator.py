@@ -719,6 +719,7 @@ class TTAEvaluationPipeline:
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         self._save_categorized_results(results)
+        self._save_modality_comparison(results)
 
     def _save_categorized_results(self, results: List[Dict]):
         categorized = defaultdict(lambda: defaultdict(list))
@@ -865,3 +866,78 @@ class TTAEvaluationPipeline:
         with open(analysis_file, "w", encoding="utf-8") as f:
             json.dump(analysis_report, f, ensure_ascii=False, indent=2)
         print(f"Category analysis report saved: {analysis_file}")
+
+    def _save_modality_comparison(self, results: List[Dict]):
+        """Save multimodal vs text-only comparison by category"""
+        category_scores = defaultdict(lambda: {"text_only": [], "multimodal": []})
+        
+        for result in results:
+            category = result.get('risk_category', 'Unknown').split(':')[0]
+            judge_results = result.get('judge_results', {})
+            
+            text_score = judge_results.get('text_only', {}).get('parsed_score')
+            multi_score = judge_results.get('multimodal', {}).get('parsed_score')
+            
+            if text_score is not None:
+                category_scores[category]["text_only"].append(text_score)
+            if multi_score is not None:
+                category_scores[category]["multimodal"].append(multi_score)
+        
+        comparison = {
+            "generated_at": datetime.now().isoformat(),
+            "total_samples": len(results),
+            "overall": {},
+            "by_category": {}
+        }
+        
+        all_text = []
+        all_multi = []
+        
+        for category in sorted(category_scores.keys()):
+            scores = category_scores[category]
+            text_scores = scores["text_only"]
+            multi_scores = scores["multimodal"]
+            
+            all_text.extend(text_scores)
+            all_multi.extend(multi_scores)
+            
+            cat_data = {
+                "text_only": {
+                    "count": len(text_scores),
+                    "avg_score": round(sum(text_scores) / len(text_scores), 3) if text_scores else None,
+                    "score_distribution": {i: text_scores.count(i) for i in range(1, 6)} if text_scores else {}
+                },
+                "multimodal": {
+                    "count": len(multi_scores),
+                    "avg_score": round(sum(multi_scores) / len(multi_scores), 3) if multi_scores else None,
+                    "score_distribution": {i: multi_scores.count(i) for i in range(1, 6)} if multi_scores else {}
+                }
+            }
+            
+            if cat_data["text_only"]["avg_score"] and cat_data["multimodal"]["avg_score"]:
+                cat_data["diff_multi_minus_text"] = round(
+                    cat_data["multimodal"]["avg_score"] - cat_data["text_only"]["avg_score"], 3
+                )
+            
+            comparison["by_category"][category] = cat_data
+        
+        comparison["overall"] = {
+            "text_only": {
+                "count": len(all_text),
+                "avg_score": round(sum(all_text) / len(all_text), 3) if all_text else None
+            },
+            "multimodal": {
+                "count": len(all_multi),
+                "avg_score": round(sum(all_multi) / len(all_multi), 3) if all_multi else None
+            }
+        }
+        
+        if comparison["overall"]["text_only"]["avg_score"] and comparison["overall"]["multimodal"]["avg_score"]:
+            comparison["overall"]["diff_multi_minus_text"] = round(
+                comparison["overall"]["multimodal"]["avg_score"] - comparison["overall"]["text_only"]["avg_score"], 3
+            )
+        
+        output_file = os.path.join(self.output_dir, "modality_comparison.json")
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(comparison, f, ensure_ascii=False, indent=2)
+        print(f"Modality comparison saved: {output_file}")
