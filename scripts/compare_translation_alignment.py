@@ -278,7 +278,7 @@ class AlignmentEvaluator:
         except Exception as e:
             print(f"[GPU {rank}] Error: {e}")
 
-    def generate_images_distributed(self, samples: List[Dict], batch_size=4):
+    def generate_images_distributed(self, samples: List[Dict], batch_size=2):
         num_gpus = torch.cuda.device_count()
         if num_gpus == 0: num_gpus = 1
         
