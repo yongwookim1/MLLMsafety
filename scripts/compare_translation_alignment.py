@@ -178,6 +178,8 @@ class AlignmentEvaluator:
                 item['en_prompt'] = en_text.strip()
             
         del model, tokenizer
+        import gc
+        gc.collect()
         torch.cuda.empty_cache()
 
         # Save results to cache
@@ -273,6 +275,10 @@ class AlignmentEvaluator:
             return
             
         print(f"Need to generate {len(files_to_generate)} images out of {len(valid_samples)}.")
+        
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
         
         # Use only needed samples for distribution
         chunks = np.array_split(files_to_generate, num_gpus)
