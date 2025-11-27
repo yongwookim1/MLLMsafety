@@ -46,12 +46,12 @@ def generate_modality_comparison(results_file: str, output_dir: str):
             "text_only": {
                 "count": len(text_scores),
                 "avg_score": round(sum(text_scores) / len(text_scores), 3) if text_scores else None,
-                "score_distribution": {i: text_scores.count(i) for i in range(1, 6)} if text_scores else {}
+                "score_distribution": {str(i): text_scores.count(i) for i in range(1, 6)} if text_scores else {}
             },
             "multimodal": {
                 "count": len(multi_scores),
                 "avg_score": round(sum(multi_scores) / len(multi_scores), 3) if multi_scores else None,
-                "score_distribution": {i: multi_scores.count(i) for i in range(1, 6)} if multi_scores else {}
+                "score_distribution": {str(i): multi_scores.count(i) for i in range(1, 6)} if multi_scores else {}
             }
         }
         
