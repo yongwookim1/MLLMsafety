@@ -107,6 +107,24 @@ class AlignmentEvaluator:
 
     def translate_prompts(self, samples: List[Dict]) -> List[Dict]:
         """Translate Korean prompts to English using local Qwen2.5."""
+        cache_file = os.path.join(self.args.output_dir, "translated_samples.json")
+        
+        # Try loading from cache
+        if os.path.exists(cache_file):
+            print(f"Loading cached translations from {cache_file}...")
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cached_samples = json.load(f)
+                # Simple validation: check if count matches roughly or just use it
+                # Since seed is fixed, we can assume samples are consistent if count matches
+                if len(cached_samples) == len(samples):
+                    print("Cache loaded successfully. Skipping translation.")
+                    return cached_samples
+                else:
+                    print(f"Cache size mismatch ({len(cached_samples)} vs {len(samples)}). Re-running translation.")
+            except Exception as e:
+                print(f"Error loading cache: {e}")
+
         print(f"Loading Qwen2.5 LLM from {self.llm_path}...")
         
         if not os.path.exists(self.llm_path):
@@ -128,7 +146,7 @@ class AlignmentEvaluator:
         print("Translating prompts...")
         system_prompt = "You are a translator. Translate the Korean text to English concisely."
         
-        batch_size = 8
+        batch_size = 64  # Increased batch size for 80GB GPU
         
         for i in tqdm(range(0, len(samples), batch_size), desc="Translating"):
             batch = samples[i:i+batch_size]
@@ -161,6 +179,16 @@ class AlignmentEvaluator:
             
         del model, tokenizer
         torch.cuda.empty_cache()
+
+        # Save results to cache
+        try:
+            os.makedirs(self.args.output_dir, exist_ok=True)
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(samples, f, ensure_ascii=False, indent=2)
+            print(f"Translations saved to {cache_file}")
+        except Exception as e:
+            print(f"Error saving translation cache: {e}")
+
         return samples
 
     @staticmethod
