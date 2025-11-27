@@ -1,17 +1,3 @@
-[2 tools called]
-
-`generate_image.py`와 달리 현재 `compare_translation_alignment.py`는 **`local_files_only=True`** 옵션은 있지만, 모델 경로(`model_path`)가 하드코딩되어 있습니다.
-
-`generate_image.py`처럼 로컬 모델 캐시 경로를 명시적으로 사용하도록 코드를 수정해야 합니다.
-
-다음과 같이 수정하겠습니다:
-
-1.  `models_cache` 경로를 클래스 초기화 시 또는 메서드에서 확실하게 참조하도록 변경.
-2.  `CLIPModel.from_pretrained` 부분도 로컬 경로를 사용하도록 수정 (만약 로컬에 다운로드되어 있지 않다면 Hugging Face Hub에서 받아오지만, `local_files_only=True` 옵션을 사용하여 로컬 우선으로 처리).
-
-수정된 코드를 적용하겠습니다.
-
-```python:MLLMsafety/scripts/compare_translation_alignment.py
 import os
 import sys
 import json
@@ -60,7 +46,7 @@ class AlignmentEvaluator:
             return []
             
         # Debug: Print first item keys to help identify correct fields
-        print(f"First item keys: {list(all_samples[0].keys())}")
+        # print(f"First item keys: {list(all_samples[0].keys())}")
         
         # Group by category
         category_groups = {}
@@ -242,7 +228,7 @@ class AlignmentEvaluator:
         chunks = np.array_split(valid_samples, num_gpus)
         chunks = [c.tolist() for c in chunks]
         
-        mp.set_start_method('spawn', force=True)
+        # mp.set_start_method('spawn', force=True)  # Moved to main block to avoid runtime error
         procs = []
         for r in range(num_gpus):
             p = mp.Process(
@@ -290,7 +276,7 @@ class AlignmentEvaluator:
             if os.path.exists(kr_path):
                 try:
                     image = Image.open(kr_path).convert("RGB")
-                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True).to(self.device)
+                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.device)
                     with torch.no_grad():
                         score_kr_img = model(**inputs).logits_per_image.item()
                 except Exception: pass
@@ -298,7 +284,7 @@ class AlignmentEvaluator:
             if os.path.exists(en_path):
                 try:
                     image = Image.open(en_path).convert("RGB")
-                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True).to(self.device)
+                    inputs = processor(text=[kr_text], images=image, return_tensors="pt", padding=True, truncation=True, max_length=77).to(self.device)
                     with torch.no_grad():
                         score_en_img = model(**inputs).logits_per_image.item()
                 except Exception: pass
@@ -334,10 +320,10 @@ class AlignmentEvaluator:
             print("="*60)
             
             out_csv = os.path.join(self.args.output_dir, "alignment_comparison_koclip.csv")
-            df.to_csv(out_csv, index=False)
+            df.to_csv(out_csv, index=False, encoding='utf-8-sig')
             
             out_summary = os.path.join(self.args.output_dir, "alignment_comparison_summary.csv")
-            cat_summary.to_csv(out_summary, index=False)
+            cat_summary.to_csv(out_summary, index=False, encoding='utf-8-sig')
             print(f"Detailed results saved to {out_csv}")
             print(f"Summary saved to {out_summary}")
 
@@ -369,4 +355,3 @@ if __name__ == "__main__":
     except RuntimeError:
         pass
     main()
-```
