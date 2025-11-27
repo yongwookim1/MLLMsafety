@@ -447,8 +447,32 @@ class AlignmentEvaluator:
             
             out_summary = os.path.join(self.args.output_dir, "alignment_comparison_summary.csv")
             cat_summary.to_csv(out_summary, index=False, encoding='utf-8-sig')
+            
+            # Save JSON results
+            json_result = {
+                "total_samples": len(df),
+                "overall": {
+                    "avg_score_kr_gen": round(df['score_kr_gen'].mean(), 4),
+                    "avg_score_en_gen": round(df['score_en_gen'].mean(), 4),
+                    "diff_en_minus_kr": round(df['score_en_gen'].mean() - df['score_kr_gen'].mean(), 4)
+                },
+                "by_category": {},
+                "detailed_results": results
+            }
+            for _, row in cat_summary.iterrows():
+                json_result["by_category"][row['category']] = {
+                    "avg_score_kr_gen": round(row['score_kr_gen'], 4),
+                    "avg_score_en_gen": round(row['score_en_gen'], 4),
+                    "diff_en_minus_kr": round(row['diff'], 4)
+                }
+            
+            out_json = os.path.join(self.args.output_dir, "alignment_comparison_koclip.json")
+            with open(out_json, 'w', encoding='utf-8') as f:
+                json.dump(json_result, f, ensure_ascii=False, indent=2)
+            
             print(f"Detailed results saved to {out_csv}")
             print(f"Summary saved to {out_summary}")
+            print(f"JSON results saved to {out_json}")
 
 def main():
     parser = argparse.ArgumentParser()
