@@ -22,11 +22,12 @@ models:
     device_map: "auto"
 
   judge:
-    # LLM Judge (Qwen3-30B-A3B-Instruct-2507 - Text Only)
     name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
     local_path: "./models_cache/models--Qwen--Qwen3-30B-A3B-Instruct-2507"
-    torch_dtype: "bfloat16"
+    torch_dtype: "float16"
     device_map: "auto"
+    use_gradient_checkpointing: true
+    use_attention_slicing: true
 
 # Dataset settings
 dataset:
@@ -48,10 +49,11 @@ image_generation:
 # Evaluation settings
 evaluation:
   output_dir: "./outputs/evaluation_results"
-  max_new_tokens: 128
+  max_new_tokens: 1024
+  judge_max_new_tokens: 256
   # temperature: 0.0  # Qwen models use greedy decoding by default
-  generation_batch_size: 1
-  judge_batch_size: 1
+  generation_batch_size: 2
+  judge_batch_size: 16
   save_interval: 10
   prompts_file: "./evaluation/kobbq_prompts.tsv"
   prompt_ids: [1]

@@ -93,6 +93,26 @@ class LLMJudge:
                 device_map=device_map,
                 local_files_only=True
             )
+
+            # Apply memory optimizations
+            if self.judge_config.get("use_gradient_checkpointing", False):
+                self.model.gradient_checkpointing_enable()
+                print("Enabled gradient checkpointing for memory efficiency")
+
+            if self.judge_config.get("use_attention_slicing", False):
+                # For text models, disable KV cache to save memory
+                if hasattr(self.model, 'config') and hasattr(self.model.config, 'use_cache'):
+                    self.model.config.use_cache = False
+                    print("Disabled attention caching for memory efficiency")
+
+            # Try to compile the model for faster inference (PyTorch 2.0+)
+            try:
+                import torch
+                if hasattr(torch, 'compile') and torch.cuda.is_available():
+                    self.model = torch.compile(self.model)
+                    print("Model compiled with torch.compile for faster inference")
+            except Exception as e:
+                print(f"torch.compile not available or failed: {e}")
             
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.judge_config["local_path"],
@@ -117,7 +137,6 @@ class LLMJudge:
     def run_batch(self, prompts: List[str]) -> List[str]:
         if not prompts:
             return []
-        # Since we switched to Text-only LLM (Qwen2.5-7B-Instruct), we use _run_text_batch
         return self._run_text_batch(prompts)
 
     def _run_text_batch(self, prompts: List[str]) -> List[str]:
