@@ -28,6 +28,7 @@ class LLMJudge:
         self.tokenizer = None
         self.processor = None
         self.is_vlm = False
+        self.is_qwen3 = False
         self._load_model(device_map)
         self.judge_generation_config = GenerationConfig(
             max_new_tokens=self.eval_config.get("judge_max_new_tokens", 1024),
@@ -49,9 +50,15 @@ class LLMJudge:
             device_map = self.judge_config.get("device_map", "auto")
             if device_map == "auto" and self.device_config["use_cuda"]:
                 device_map = {"": self.device_config["cuda_device"]}
-            
+        
+        model_name = self.judge_config.get("name", "").lower()
+        model_path = self.judge_config.get("local_path", "").lower()
+        
         # Check if model is VLM based on name or config
-        self.is_vlm = "VL" in self.judge_config.get("name", "") or "VL" in self.judge_config.get("local_path", "")
+        self.is_vlm = "VL" in model_name or "VL" in model_path
+        
+        # Check if model is Qwen3
+        self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
         
         if self.is_vlm:
             print("Detected VLM model. Loading with Qwen2_5_VLForConditionalGeneration...")
@@ -77,6 +84,9 @@ class LLMJudge:
                 self.processor.pad_token = self.processor.eos_token
         else:
             print("Loading Text-only model...")
+            if self.is_qwen3:
+                print("Detected Qwen3 model. Using AutoModelForCausalLM with MoE support...")
+            
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.judge_config["local_path"],
                 torch_dtype=self.torch_dtype,
@@ -111,21 +121,30 @@ class LLMJudge:
         return self._run_text_batch(prompts)
 
     def _run_text_batch(self, prompts: List[str]) -> List[str]:
-        messages = [
-            [
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": prompt}
-            ]
-            for prompt in prompts
-        ]
-        texts = [
-            self.tokenizer.apply_chat_template(
-                convo,
-                tokenize=False,
-                add_generation_prompt=True
-            )
-            for convo in messages
-        ]
+        texts = []
+        for prompt in prompts:
+            try:
+                if self.is_qwen3:
+                    messages = [{"role": "user", "content": prompt}]
+                else:
+                    messages = [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ]
+                
+                if hasattr(self.tokenizer, 'apply_chat_template') and self.tokenizer.chat_template is not None:
+                    text = self.tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                else:
+                    text = prompt
+                texts.append(text)
+            except Exception as e:
+                print(f"Warning: Chat template application failed: {e}. Using prompt directly.")
+                texts.append(prompt)
+        
         model_inputs = self.tokenizer(texts, return_tensors="pt", padding=True).to(self.device)
         
         with torch.no_grad():
