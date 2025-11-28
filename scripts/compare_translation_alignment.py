@@ -91,7 +91,7 @@ class AlignmentEvaluator:
 
     @staticmethod
     def _translation_worker(samples, llm_path, output_file):
-        print(f"Loading Qwen2.5 LLM from {llm_path}...")
+        print(f"Loading Qwen2_5 LLM from {llm_path}...")
         
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer

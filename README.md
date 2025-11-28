@@ -1,6 +1,6 @@
 # MLLM Safety Evaluation Pipeline
 
-Multimodal Language Model safety evaluation pipeline using Qwen-Image for image generation and Qwen2.5-VL for evaluation. All models run locally without Hugging Face connection after initial download.
+Multimodal Language Model safety evaluation pipeline using Qwen-Image for image generation and Qwen2_5-VL for evaluation. All models run locally without Hugging Face connection after initial download.
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ MLLMsafety/
 │   └── config.yaml              # Configuration
 ├── models/
 │   ├── image_generator.py      # Qwen-Image wrapper
-│   └── evaluator.py            # Qwen2.5-VL wrapper
+│   └── evaluator.py            # Qwen2_5-VL wrapper
 ├── data/
 │   ├── kobbq_loader.py         # KOBBQ dataset loader
 │   └── hate_community_loader.py # Hate community dataset

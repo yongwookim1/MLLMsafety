@@ -17,12 +17,11 @@ from models.llm_judge import LLMJudge
 from data.tta_loader import TTALoader
 
 def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mapping_path: str, output_dir: str):
-    """Worker function for distributed generation"""
+    """Worker function for distributed response generation."""
     try:
         print(f"GPU {gpu_id}: Starting generation for {len(samples)} samples...")
         
-        # Use specific GPU directly without CUDA_VISIBLE_DEVICES to avoid potential environment propagation issues in some setups
-        # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id) 
+        # GPU assignment handled by device_map in model loading 
         device_map = {"": f"cuda:{gpu_id}"}
         worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
         
@@ -177,12 +176,11 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
         traceback.print_exc()
 
 def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], output_dir: str):
-    """Worker function for distributed safety evaluation"""
+    """Worker function for distributed safety evaluation."""
     try:
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
         
-        # Use specific GPU directly without CUDA_VISIBLE_DEVICES
-        # os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        # GPU assignment handled by device_map in model loading
         device_map = {"": f"cuda:{gpu_id}"}
         worker_output_file = os.path.join(output_dir, f"evaluation_results_gpu_{gpu_id}.json")
         
@@ -320,12 +318,27 @@ class TTAEvaluationPipeline:
         self.judge_model = None
         
         self.loader = TTALoader(config_path)
-        
+
+        # Extract judge model name for result folder organization
+        judge_config = self.config.get("models", {}).get("judge", {})
+        judge_name = judge_config.get("name", "unknown").lower()
+        if "qwen3" in judge_name:
+            self.judge_model_name = "qwen3"
+        elif "qwen2.5" in judge_name or "qwen2_5" in judge_name:
+            self.judge_model_name = "qwen2.5"
+        else:
+            self.judge_model_name = judge_name.replace("/", "_").replace(".", "_")
+
+        # Structured output directories
         self.output_dir = os.path.join("outputs", "tta_results")
-        os.makedirs(self.output_dir, exist_ok=True)
-        
+        self.responses_dir = os.path.join(self.output_dir, "responses")
+        self.evaluations_dir = os.path.join(self.output_dir, "evaluations", self.judge_model_name)
+
+        os.makedirs(self.responses_dir, exist_ok=True)
+        os.makedirs(self.evaluations_dir, exist_ok=True)
+
         self.mapping_file = os.path.join("outputs", "tta_image_mapping.json")
-        self.responses_file = os.path.join(self.output_dir, "generated_responses.json")
+        self.responses_file = os.path.join(self.responses_dir, "generated_responses.json")
 
     def load_image_mapping(self) -> Dict[str, Dict]:
         if not os.path.exists(self.mapping_file):
@@ -335,8 +348,7 @@ class TTAEvaluationPipeline:
             return json.load(f)
 
     def _find_original_image(self, sample_id: str) -> Optional[str]:
-        # This method is kept for single-process usage if needed, 
-        # but distributed worker uses its own local version to avoid pickling self.
+        # Kept for single-process usage; distributed worker uses local version
         if '_' in sample_id and sample_id.startswith('r'):
             risk_part = sample_id.split('_')[0]
             if len(risk_part) >= 3:
@@ -351,11 +363,7 @@ class TTAEvaluationPipeline:
         return None
 
     def run_evaluation(self, limit: Optional[int] = None):
-        """
-        Run the full pipeline:
-        1. Generation (VLM)
-        2. Safety Evaluation (LLM Judge)
-        """
+        """Run the full TTA evaluation pipeline: generation + safety evaluation."""
         # Check available GPUs
         num_gpus = torch.cuda.device_count()
         print(f"Detected {num_gpus} GPUs available.")
@@ -395,20 +403,16 @@ class TTAEvaluationPipeline:
             print("All samples have been processed. Skipping generation.")
             return
 
-        # Split samples
+        # Split samples across GPUs
         chunk_size = math.ceil(len(samples_to_process) / num_gpus)
         chunks = [samples_to_process[i:i + chunk_size] for i in range(0, len(samples_to_process), chunk_size)]
-        
-        # Ensure we don't have more chunks than GPUs (if samples < num_gpus)
         valid_chunks = [c for c in chunks if len(c) > 0]
         active_gpus = len(valid_chunks)
-        
+
         print(f"Distributing {len(samples_to_process)} samples across {active_gpus} GPUs...")
-        
+
         ctx = mp.get_context('spawn')
         processes = []
-        
-        # Pass output_dir instead of Queue
         for gpu_id in range(active_gpus):
             p = ctx.Process(
                 target=_generation_worker,
@@ -416,11 +420,10 @@ class TTAEvaluationPipeline:
             )
             p.start()
             processes.append(p)
-            
-        # Wait for all processes to finish
+
         for p in processes:
             p.join()
-            
+
         # Merge results from all GPU files
         all_results = existing_results[:]
         print("Merging distributed results...")
@@ -431,7 +434,7 @@ class TTAEvaluationPipeline:
                     worker_results = json.load(f)
                     all_results.extend(worker_results)
                 # Optional: cleanup worker files? Better keep them for debug/backup
-                
+
         # Sort by sample ID to maintain order consistency
         all_results.sort(key=lambda x: x['sample_id'])
 
@@ -440,10 +443,10 @@ class TTAEvaluationPipeline:
         for r in all_results:
             unique_results[r['sample_id']] = r
         all_results = list(unique_results.values())
-        
+
         with open(self.responses_file, "w", encoding="utf-8") as f:
             json.dump(all_results, f, ensure_ascii=False, indent=2)
-            
+
         print(f"Distributed Generation complete. Saved to {self.responses_file}")
 
     def run_distributed_judge(self, num_gpus: int):
@@ -456,13 +459,13 @@ class TTAEvaluationPipeline:
             responses = json.load(f)
 
         # Check for existing evaluation results
-        output_file = os.path.join(self.output_dir, "evaluation_results.json")
+        output_file = os.path.join(self.evaluations_dir, "evaluation_results.json")
         existing_results = []
         if os.path.exists(output_file):
             try:
                 with open(output_file, "r", encoding="utf-8") as f:
                     existing_results = json.load(f)
-                print(f"Found {len(existing_results)} existing evaluation results.")
+                print(f"Found {len(existing_results)} existing evaluation results for {self.judge_model_name}.")
             except Exception as e:
                 print(f"Error loading existing evaluation results: {e}")
 
@@ -470,19 +473,19 @@ class TTAEvaluationPipeline:
         responses_to_process = [r for r in responses if r['sample_id'] not in existing_ids]
 
         if not responses_to_process:
-            print("All samples have been evaluated. Skipping evaluation.")
+            print(f"All samples have been evaluated with {self.judge_model_name}. Skipping evaluation.")
             return
             
         chunk_size = math.ceil(len(responses_to_process) / num_gpus)
         chunks = [responses_to_process[i:i + chunk_size] for i in range(0, len(responses_to_process), chunk_size)]
         valid_chunks = [c for c in chunks if len(c) > 0]
         active_gpus = len(valid_chunks)
-        
+
         print(f"Distributing evaluation of {len(responses_to_process)} samples across {active_gpus} GPUs...")
-        
+
         ctx = mp.get_context('spawn')
         processes = []
-        
+
         for gpu_id in range(active_gpus):
             p = ctx.Process(
                 target=_judge_worker,
@@ -621,13 +624,13 @@ class TTAEvaluationPipeline:
         with open(self.responses_file, "r", encoding="utf-8") as f:
             responses = json.load(f)
             
-        output_file = os.path.join(self.output_dir, "evaluation_results.json")
+        output_file = os.path.join(self.evaluations_dir, "evaluation_results.json")
         existing_results = []
         if os.path.exists(output_file):
             try:
                 with open(output_file, "r", encoding="utf-8") as f:
                     existing_results = json.load(f)
-                print(f"Found {len(existing_results)} existing evaluation results.")
+                print(f"Found {len(existing_results)} existing evaluation results for {self.judge_model_name}.")
             except Exception:
                 pass
 
@@ -713,7 +716,7 @@ class TTAEvaluationPipeline:
         return None
 
     def _save_results(self, results: List[Dict]):
-        output_file = os.path.join(self.output_dir, "evaluation_results.json")
+        output_file = os.path.join(self.evaluations_dir, "evaluation_results.json")
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         self._save_categorized_results(results)
@@ -729,7 +732,7 @@ class TTAEvaluationPipeline:
 
         for modality, risk_groups in categorized.items():
             for risk_name, risk_results in risk_groups.items():
-                category_dir = os.path.join(self.output_dir, "categories", risk_name)
+                category_dir = os.path.join(self.evaluations_dir, "categories", risk_name)
                 os.makedirs(category_dir, exist_ok=True)
                 category_file = os.path.join(category_dir, f"{modality}_results.json")
                 with open(category_file, "w", encoding="utf-8") as f:
@@ -801,7 +804,7 @@ class TTAEvaluationPipeline:
         for risk_data in summary["by_risk_category"].values():
             calculate_stats_for_section(risk_data)
 
-        summary_file = os.path.join(self.output_dir, "evaluation_summary.json")
+        summary_file = os.path.join(self.evaluations_dir, "evaluation_summary.json")
         with open(summary_file, "w", encoding="utf-8") as f:
             json.dump(dict(summary), f, ensure_ascii=False, indent=2)
 
@@ -860,7 +863,7 @@ class TTAEvaluationPipeline:
                 analysis = self._analyze_category_modality(cat_results, category_code, modality)
                 analysis_report["category_analysis"][category_code][modality] = analysis
 
-        analysis_file = os.path.join(self.output_dir, "category_analysis_report.json")
+        analysis_file = os.path.join(self.evaluations_dir, "category_analysis_report.json")
         with open(analysis_file, "w", encoding="utf-8") as f:
             json.dump(analysis_report, f, ensure_ascii=False, indent=2)
         print(f"Category analysis report saved: {analysis_file}")
@@ -935,7 +938,7 @@ class TTAEvaluationPipeline:
                 comparison["overall"]["multimodal"]["avg_score"] - comparison["overall"]["text_only"]["avg_score"], 3
             )
         
-        output_file = os.path.join(self.output_dir, "modality_comparison.json")
+        output_file = os.path.join(self.evaluations_dir, "modality_comparison.json")
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(comparison, f, ensure_ascii=False, indent=2)
         print(f"Modality comparison saved: {output_file}")
