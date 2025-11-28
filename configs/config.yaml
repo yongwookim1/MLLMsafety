@@ -23,7 +23,7 @@ models:
 
   judge:
     name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
-    local_path: "./models_cache/models--Qwen--Qwen3-30B-A3B-Instruct-2507"
+    local_path: "./models_cache/Qwen3-30B-A3B-Instruct-2507"
     torch_dtype: "float16"
     device_map: "auto"
     use_gradient_checkpointing: true
