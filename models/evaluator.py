@@ -83,7 +83,7 @@ class Evaluator:
                 device_map = {"": self.device_config["cuda_device"]}
 
         # Load the multimodal model
-        self.model = Qwen2.5_VLForConditionalGeneration.from_pretrained(
+        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model_path,
             torch_dtype=self.torch_dtype,
             device_map=device_map,
