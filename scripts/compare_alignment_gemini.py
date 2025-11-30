@@ -195,6 +195,17 @@ class GeminiAlignmentEvaluator:
         with open(self.mapping_file, 'r', encoding='utf-8') as f:
             kr_mapping = json.load(f)
 
+        # Pre-scan existing English images
+        existing_en_hashes = set()
+        if os.path.exists(self.en_img_dir):
+            for fname in os.listdir(self.en_img_dir):
+                if fname.startswith("en_") and fname.endswith(".jpg"):
+                    # fname format: en_{hash}.jpg
+                    h = fname[3:-4]
+                    existing_en_hashes.add(h)
+        
+        print(f"Found {len(existing_en_hashes)} existing English images in folder.")
+
         # Filter samples
         candidates = []
         for item in all_samples:
@@ -215,6 +226,11 @@ class GeminiAlignmentEvaluator:
             if not en_prompt: continue
             
             en_hash = hashlib.md5(en_prompt.encode('utf-8')).hexdigest()
+            
+            # Check if English image exists
+            if en_hash not in existing_en_hashes:
+                continue
+
             en_path = os.path.join(self.en_img_dir, f"en_{en_hash}.jpg")
 
             candidates.append({
@@ -226,7 +242,7 @@ class GeminiAlignmentEvaluator:
                 'category': item.get('category', 'unknown')
             })
 
-        print(f"Found {len(candidates)} candidate pairs.")
+        print(f"Found {len(candidates)} candidate pairs (matched with existing EN images).")
         
         # Sampling
         if target_count > 0 and len(candidates) > target_count:
@@ -321,27 +337,60 @@ class GeminiAlignmentEvaluator:
                 img_b = kr_img if is_swapped else en_img
                 
                 prompt = [
-                    "You are an expert visual critic specializing in Korean culture, aesthetics, and social context.",
-                    
-                    f"Original Text (Prompt): \"{item['text']}\"",
-                    "Task: Compare Image A and Image B to determine which one better reflects the 'Korean Style' and cultural nuance implied by the Original Text.",
-                    
-                    "Evaluate based on the following 'Cultural Alignment' criteria:",
-                    "1. **Environment & Architecture**: Do the background, streets, buildings, or signage look authentically Korean? (e.g., Hangul signs, specific street layouts, architecture styles).",
-                    "2. **Subjects & Appearance**: If people are present, do their fashion, makeup, and features align with current Korean trends or historical context (depending on the text)?",
-                    "3. **Atmosphere**: Does the image capture the specific 'vibe' of Korea (e.g., distinct neon lighting, color palette, emotional tone)?",
-                    "4. **Text Accuracy**: If there is text in the image, is the Hangul written correctly and naturally?",
-                    
+                    # ------------------------------------------------------------------
+                    # 1. System Role & Persona
+                    # Defines a specific expert persona to align the evaluation context.
+                    # ------------------------------------------------------------------
+                    "System Role: You are an expert Visual Aesthetics Critic specializing in Korean culture, fashion, and social context.",
+                    "Objective: Evaluate two images (A and B) to determine which one better reflects the 'Korean Style' and appearance based on the Original Text.",
+
+                    # ------------------------------------------------------------------
+                    # 2. Input Data
+                    # ------------------------------------------------------------------
+                    f"Original Text: \"{item['text']}\"",
                     "Image A:", img_a,
                     "Image B:", img_b,
-                    
-                    "Analyze both images step-by-step before making a decision.",
-                    "Respond ONLY in valid JSON format with the following keys:",
-                    "- 'reason': 'A detailed comparison of cultural markers (background, fashion, text) in both images. Explain why one feels more authentically Korean than the other.'",
-                    "- 'choice': 'A', 'B', or 'Tie' (Choose the one with higher cultural alignment)",
-                    
-                    "Do not use markdown code blocks. Just the raw JSON string."
-                    ]
+
+                    # ------------------------------------------------------------------
+                    # 3. Evaluation Rubric
+                    # Explicitly defines what 'Korean Style' means, focusing on people and vibe.
+                    # ------------------------------------------------------------------
+                    "### Evaluation Rubric (Priority Order):",
+
+                    "1. [Critical] Subject Appearance & Styling (The 'Korean Look'):",
+                    "   - Do the people look authentically Korean? Focus on facial features, makeup style (e.g., 'K-Beauty' aesthetics), and hairstyles.",
+                    "   - **Fashion:** Does the clothing match modern Korean trends (e.g., clean-cut, minimalist, street fashion) or historical accuracy (if applicable)?",
+                    "   - **Differentiation:** Reject images that look like generic Asian stereotypes or clearly resemble Chinese/Japanese styling artifacts.",
+
+                    "2. [High] Atmospheric Vibe & Environment:",
+                    "   - Does the background capture the distinct 'vibe' of Korea (e.g., apartment complexes, neon alleyways, specific architectural tones)?",
+                    "   - Note: Ignore illegible text strings, but evaluate the *visual placement* of signs to see if they match Korean street layouts.",
+
+                    "3. [Medium] Contextual Relevance:",
+                    "   - Does the image faithfully depict the situation described in the Original Text?",
+
+                    # ------------------------------------------------------------------
+                    # 4. Evaluation Process
+                    # Forces a step-by-step analysis to prevent random guessing.
+                    # ------------------------------------------------------------------
+                    "### Evaluation Steps:",
+                    "1. Analyze the facial features and styling of the main subjects in both images.",
+                    "2. Check the background atmosphere for Korean cultural markers.",
+                    "3. Compare which image feels more like a scene from a Korean drama, movie, or daily life.",
+                    "4. Select the winner based on Cultural Authenticity.",
+
+                    # ------------------------------------------------------------------
+                    # 5. Output Format
+                    # Returns strictly structured JSON for parsing.
+                    # ------------------------------------------------------------------
+                    "Respond ONLY in valid JSON format with no markdown blocks:",
+                    "{",
+                    "  \"analysis_people_A\": \"Assessment of facial features/styling in Image A.\",",
+                    "  \"analysis_people_B\": \"Assessment of facial features/styling in Image B.\",",
+                    "  \"comparison_reason\": \"Why one image looks more authentically Korean than the other (focus on people and vibe).\",",
+                    "  \"choice\": \"A\", \"B\", or \"Tie\"",
+                    "}"
+                ]
 
                 response_text = self._call_gemini_with_retry(prompt)
                 if not response_text:
@@ -351,7 +400,9 @@ class GeminiAlignmentEvaluator:
                 try:
                     eval_data = json.loads(clean_text)
                     choice = eval_data.get('choice', 'Tie').strip().upper()
-                    reason = eval_data.get('reason', '')
+                    reason = eval_data.get('comparison_reason', '')
+                    analysis_a = eval_data.get('analysis_people_A', '')
+                    analysis_b = eval_data.get('analysis_people_B', '')
                 except json.JSONDecodeError:
                     print(f"JSON Error (ID {item['id']}): {clean_text[:50]}...")
                     continue
@@ -369,7 +420,9 @@ class GeminiAlignmentEvaluator:
                     "winner": winner,
                     "raw_choice": choice,
                     "is_swapped": is_swapped,
-                    "reason": reason
+                    "reason": reason,
+                    "analysis_people_A": analysis_a,
+                    "analysis_people_B": analysis_b
                 }
                 batch_results.append(res)
 
