@@ -74,7 +74,27 @@ def generate_summary():
     print("Result Summary")
     print("="*50)
 
-    results_file = "outputs/tta_results/evaluation_results.json"
+    evaluations_dir = "outputs/tta_results/evaluations"
+    results_file = None
+
+    if os.path.exists(evaluations_dir):
+        # Find judge model directories
+        judge_dirs = [d for d in os.listdir(evaluations_dir)
+                     if os.path.isdir(os.path.join(evaluations_dir, d))]
+
+        if judge_dirs:
+            judge_dirs_with_time = [(d, os.path.getmtime(os.path.join(evaluations_dir, d)))
+                                   for d in judge_dirs]
+            judge_dirs_with_time.sort(key=lambda x: x[1], reverse=True)
+            latest_judge = judge_dirs_with_time[0][0]
+
+            results_file = os.path.join(evaluations_dir, latest_judge, "evaluation_results.json")
+            print(f"Using results from judge model: {latest_judge}")
+
+    if not results_file or not os.path.exists(results_file):
+        results_file = "outputs/tta_results/evaluation_results.json"
+        print("Using legacy results path")
+
     mapping_file = "outputs/tta_image_mapping.json"
 
     if os.path.exists(results_file):
