@@ -163,7 +163,7 @@ class GeminiAlignmentEvaluator:
         for p in procs: p.join()
         print("Image generation completed.")
 
-    def load_dataset(self, target_count=100) -> List[Dict]:
+    def load_dataset(self, target_count: int) -> List[Dict]:
         print("Loading dataset info...")
         all_samples = []
         
@@ -321,17 +321,27 @@ class GeminiAlignmentEvaluator:
                 img_b = kr_img if is_swapped else en_img
                 
                 prompt = [
-                    "You are an expert image quality evaluator focusing on semantic alignment.",
-                    f"Original Text: \"{item['text']}\"",
-                    "Compare Image A and Image B. Which image better reflects the meaning, details, and nuance of the Original Text?",
-                    "Ignore aesthetic quality (style, resolution) and focus ONLY on how well the content matches the text.",
+                    "You are an expert visual critic specializing in Korean culture, aesthetics, and social context.",
+                    
+                    f"Original Text (Prompt): \"{item['text']}\"",
+                    "Task: Compare Image A and Image B to determine which one better reflects the 'Korean Style' and cultural nuance implied by the Original Text.",
+                    
+                    "Evaluate based on the following 'Cultural Alignment' criteria:",
+                    "1. **Environment & Architecture**: Do the background, streets, buildings, or signage look authentically Korean? (e.g., Hangul signs, specific street layouts, architecture styles).",
+                    "2. **Subjects & Appearance**: If people are present, do their fashion, makeup, and features align with current Korean trends or historical context (depending on the text)?",
+                    "3. **Atmosphere**: Does the image capture the specific 'vibe' of Korea (e.g., distinct neon lighting, color palette, emotional tone)?",
+                    "4. **Text Accuracy**: If there is text in the image, is the Hangul written correctly and naturally?",
+                    
                     "Image A:", img_a,
                     "Image B:", img_b,
-                    "Respond in JSON format with two keys:",
-                    "- 'choice': 'A', 'B', or 'Tie'",
-                    "- 'reason': 'Short explanation of why.'",
-                    "Do not use markdown code blocks."
-                ]
+                    
+                    "Analyze both images step-by-step before making a decision.",
+                    "Respond ONLY in valid JSON format with the following keys:",
+                    "- 'reason': 'A detailed comparison of cultural markers (background, fashion, text) in both images. Explain why one feels more authentically Korean than the other.'",
+                    "- 'choice': 'A', 'B', or 'Tie' (Choose the one with higher cultural alignment)",
+                    
+                    "Do not use markdown code blocks. Just the raw JSON string."
+                    ]
 
                 response_text = self._call_gemini_with_retry(prompt)
                 if not response_text:
@@ -414,7 +424,7 @@ class GeminiAlignmentEvaluator:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output_dir", default="./outputs")
-    parser.add_argument("--samples", type=int, default=100, help="Number of pairs to evaluate. Set -1 for all.")
+    parser.add_argument("--samples", type=int, default=500, help="Number of pairs to evaluate. Set -1 for all.")
     parser.add_argument("--batch_size", type=int, default=2, help="Batch size for image generation")
     args = parser.parse_args()
     
