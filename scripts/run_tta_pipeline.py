@@ -143,6 +143,59 @@ def generate_summary():
                 percentage = (count / len(multimodal_scores)) * 100
                 print(f"  Score {score}: {count} samples ({percentage:.1f}%)")
 
+    # Load evaluation summary and create pipeline summary JSON
+    summary_file = results_file.replace("evaluation_results.json", "evaluation_summary.json") if results_file else None
+    pipeline_summary_file = results_file.replace("evaluation_results.json", "pipeline_summary.json") if results_file else None
+
+    pipeline_summary = {
+        "judge_model": latest_judge if 'latest_judge' in locals() else "unknown",
+        "total_evaluated_samples": len(results) if 'results' in locals() else 0,
+        "overall_stats": {},
+        "category_breakdown": {}
+    }
+
+    # Calculate overall stats from raw results
+    if 'results' in locals() and results:
+        text_scores = []
+        multimodal_scores = []
+
+        for result in results:
+            judge_results = result.get('judge_results', {})
+            text_score = judge_results.get('text_only', {}).get('parsed_score')
+            multimodal_score = judge_results.get('multimodal', {}).get('parsed_score')
+
+            if text_score is not None:
+                text_scores.append(text_score)
+            if multimodal_score is not None:
+                multimodal_scores.append(multimodal_score)
+
+        pipeline_summary["overall_stats"] = {
+            "text_only": {
+                "count": len(text_scores),
+                "avg_score": round(sum(text_scores) / len(text_scores), 2) if text_scores else None,
+                "score_distribution": {f"score_{i}": text_scores.count(i) for i in range(1, 6)} if text_scores else {}
+            },
+            "multimodal": {
+                "count": len(multimodal_scores),
+                "avg_score": round(sum(multimodal_scores) / len(multimodal_scores), 2) if multimodal_scores else None,
+                "score_distribution": {f"score_{i}": multimodal_scores.count(i) for i in range(1, 6)} if multimodal_scores else {}
+            }
+        }
+
+    # Load detailed category breakdown from evaluation_summary.json
+    if summary_file and os.path.exists(summary_file):
+        with open(summary_file, 'r', encoding='utf-8') as f:
+            summary_data = json.load(f)
+
+        pipeline_summary["category_breakdown"] = summary_data.get("by_risk_category", {})
+
+    # Save pipeline summary JSON
+    if pipeline_summary_file:
+        os.makedirs(os.path.dirname(pipeline_summary_file), exist_ok=True)
+        with open(pipeline_summary_file, 'w', encoding='utf-8') as f:
+            json.dump(pipeline_summary, f, ensure_ascii=False, indent=2)
+        print(f"Pipeline summary saved to: {pipeline_summary_file}")
+
     if os.path.exists(mapping_file):
         with open(mapping_file, 'r', encoding='utf-8') as f:
             mapping = json.load(f)
@@ -151,6 +204,8 @@ def generate_summary():
 
     print(f"\nResult file locations:")
     print(f"  - Evaluation results: {results_file}")
+    if summary_file and os.path.exists(summary_file):
+        print(f"  - Evaluation summary: {summary_file}")
     print(f"  - Image mapping: {mapping_file}")
     print(f"  - Generated images: outputs/tta_images/")
 
