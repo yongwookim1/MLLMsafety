@@ -14,6 +14,7 @@ from tqdm import tqdm
 from typing import List, Dict, Any
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from transformers import CLIPModel, CLIPProcessor
 
 # Allow importing from parent directories
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,13 +31,15 @@ np.random.seed(42)
 class GeminiAlignmentEvaluator:
     def __init__(self, args):
         self.args = args
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.setup_gemini()
-        
+        self.setup_clip()
+
         self.kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
         self.en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
         self.mapping_file = os.path.join(self.args.output_dir, "tta_image_mapping.json")
         self.image_model_path = os.path.abspath("./models_cache/qwen-image")
-        
+
         # Output files
         self.out_csv = os.path.join(self.args.output_dir, "gemini_alignment_comparison.csv")
         self.out_json = os.path.join(self.args.output_dir, "gemini_alignment_comparison.json")
@@ -59,6 +62,18 @@ class GeminiAlignmentEvaluator:
             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
+
+    def setup_clip(self):
+        """Initialize KoCLIP model for alignment evaluation"""
+        self.koclip_model_path = os.path.abspath("./models_cache/clip-vit-large-patch14-ko")
+
+        try:
+            self.clip_model = CLIPModel.from_pretrained(self.koclip_model_path, local_files_only=True).to(self.device)
+            self.clip_processor = CLIPProcessor.from_pretrained(self.koclip_model_path, local_files_only=True)
+            print("KoCLIP model loaded successfully")
+        except Exception as e:
+            print(f"Failed to load KoCLIP: {e}")
+            self.clip_model = None
 
     @staticmethod
     def _generate_worker(rank, chunk_data, output_dir, model_path, batch_size=1):
@@ -272,6 +287,32 @@ class GeminiAlignmentEvaluator:
                 time.sleep(2 * (attempt + 1))
         return None
 
+    def evaluate_clip_alignment(self, kr_text: str, kr_image: Image, en_image: Image) -> Dict[str, float]:
+        """Evaluate text-image alignment using CLIP"""
+        if not self.clip_model:
+            return {"clip_kr": None, "clip_en": None}
+
+        try:
+            texts = [kr_text, kr_text]  # Same text for both KR and EN images
+            images = [kr_image, en_image]
+
+            inputs = self.clip_processor(
+                text=texts, images=images,
+                return_tensors="pt", padding=True, truncation=True, max_length=77
+            ).to(self.device)
+
+            with torch.no_grad():
+                outputs = self.clip_model(**inputs)
+                scores = outputs.logits_per_image.diag().cpu().numpy()
+
+            return {
+                "clip_kr": float(scores[0]),
+                "clip_en": float(scores[1])
+            }
+        except Exception as e:
+            print(f"CLIP evaluation error: {e}")
+            return {"clip_kr": None, "clip_en": None}
+
     def get_completed_ids(self):
         """Load IDs that have already been evaluated from the CSV file."""
         if os.path.exists(self.out_csv):
@@ -332,7 +373,10 @@ class GeminiAlignmentEvaluator:
             try:
                 kr_img = Image.open(item['kr_path'])
                 en_img = Image.open(item['en_path'])
-                
+
+                # Evaluate CLIP alignment first
+                clip_scores = self.evaluate_clip_alignment(item['text'], kr_img, en_img)
+
                 is_swapped = random.random() > 0.5
                 img_a = en_img if is_swapped else kr_img
                 img_b = kr_img if is_swapped else en_img
@@ -423,7 +467,8 @@ class GeminiAlignmentEvaluator:
                     "is_swapped": is_swapped,
                     "reason": reason,
                     "analysis_people_A": analysis_a,
-                    "analysis_people_B": analysis_b
+                    "analysis_people_B": analysis_b,
+                    **clip_scores  # Add CLIP scores
                 }
                 batch_results.append(res)
 
