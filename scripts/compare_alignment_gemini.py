@@ -93,7 +93,8 @@ class GeminiAlignmentEvaluator:
                 
                 for idx, item in enumerate(batch_items):
                     if 'en_prompt' not in item: continue
-                    prompt = item['en_prompt']
+                    # Add Korean cultural context to the original prompt
+                    prompt = item['en_prompt'] + ", Korean cultural context, authentic Korean aesthetic"
                     phash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
                     path = os.path.join(output_dir, f"en_{phash}.jpg")
                     if not os.path.exists(path):
@@ -228,8 +229,8 @@ class GeminiAlignmentEvaluator:
             en_hash = hashlib.md5(en_prompt.encode('utf-8')).hexdigest()
             
             # Check if English image exists
-            if en_hash not in existing_en_hashes:
-                continue
+            # if en_hash not in existing_en_hashes:
+            #     continue
 
             en_path = os.path.join(self.en_img_dir, f"en_{en_hash}.jpg")
 
@@ -242,7 +243,7 @@ class GeminiAlignmentEvaluator:
                 'category': item.get('category', 'unknown')
             })
 
-        print(f"Found {len(candidates)} candidate pairs (matched with existing EN images).")
+        print(f"Found {len(candidates)} candidate pairs (ready for evaluation or generation).")
         
         # Sampling
         if target_count > 0 and len(candidates) > target_count:
