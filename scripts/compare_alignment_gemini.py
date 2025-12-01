@@ -12,9 +12,30 @@ import torch.multiprocessing as mp
 from PIL import Image
 from tqdm import tqdm
 from typing import List, Dict, Any
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from transformers import CLIPModel, CLIPProcessor
+# Conditional imports for optional dependencies
+try:
+    import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    # Create dummy classes to avoid NameError
+    class genai:
+        class GenerativeModel:
+            def __init__(self, *args, **kwargs):
+                pass
+            def generate_content(self, *args, **kwargs):
+                return None
+        @staticmethod
+        def configure(*args, **kwargs):
+            pass
+    class HarmCategory:
+        HARM_CATEGORY_HARASSMENT = "HARM_CATEGORY_HARASSMENT"
+        HARM_CATEGORY_HATE_SPEECH = "HARM_CATEGORY_HATE_SPEECH"
+        HARM_CATEGORY_SEXUALLY_EXPLICIT = "HARM_CATEGORY_SEXUALLY_EXPLICIT"
+        HARM_CATEGORY_DANGEROUS_CONTENT = "HARM_CATEGORY_DANGEROUS_CONTENT"
+    class HarmBlockThreshold:
+        BLOCK_NONE = "BLOCK_NONE"
 
 # Allow importing from parent directories
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,9 +52,7 @@ np.random.seed(42)
 class GeminiAlignmentEvaluator:
     def __init__(self, args):
         self.args = args
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.setup_gemini()
-        self.setup_clip()
 
         self.kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
         self.en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
@@ -45,35 +64,26 @@ class GeminiAlignmentEvaluator:
         self.out_json = os.path.join(self.args.output_dir, "gemini_alignment_comparison.json")
 
     def setup_gemini(self):
+        if not GEMINI_AVAILABLE:
+            raise ImportError("Google Gemini API not available. Please install google-generativeai package.")
+
         api_key = os.environ.get("GOOGLE_API_KEY")
         if not api_key:
             api_key = input("Enter your Google Gemini API Key: ").strip()
-        
+
         genai.configure(api_key=api_key)
-        
+
         self.model_name = 'gemini-2.5-flash'
         print(f"Using Gemini Model: {self.model_name}")
-        
+
         self.model = genai.GenerativeModel(self.model_name)
-        
+
         self.safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
-
-    def setup_clip(self):
-        """Initialize KoCLIP model for alignment evaluation"""
-        self.koclip_model_path = os.path.abspath("./models_cache/clip-vit-large-patch14-ko")
-
-        try:
-            self.clip_model = CLIPModel.from_pretrained(self.koclip_model_path, local_files_only=True).to(self.device)
-            self.clip_processor = CLIPProcessor.from_pretrained(self.koclip_model_path, local_files_only=True)
-            print("KoCLIP model loaded successfully")
-        except Exception as e:
-            print(f"Failed to load KoCLIP: {e}")
-            self.clip_model = None
 
     @staticmethod
     def _generate_worker(rank, chunk_data, output_dir, model_path, batch_size=1):
@@ -287,32 +297,6 @@ class GeminiAlignmentEvaluator:
                 time.sleep(2 * (attempt + 1))
         return None
 
-    def evaluate_clip_alignment(self, kr_text: str, kr_image: Image, en_image: Image) -> Dict[str, float]:
-        """Evaluate text-image alignment using CLIP"""
-        if not self.clip_model:
-            return {"clip_kr": None, "clip_en": None}
-
-        try:
-            texts = [kr_text, kr_text]  # Same text for both KR and EN images
-            images = [kr_image, en_image]
-
-            inputs = self.clip_processor(
-                text=texts, images=images,
-                return_tensors="pt", padding=True, truncation=True, max_length=77
-            ).to(self.device)
-
-            with torch.no_grad():
-                outputs = self.clip_model(**inputs)
-                scores = outputs.logits_per_image.diag().cpu().numpy()
-
-            return {
-                "clip_kr": float(scores[0]),
-                "clip_en": float(scores[1])
-            }
-        except Exception as e:
-            print(f"CLIP evaluation error: {e}")
-            return {"clip_kr": None, "clip_en": None}
-
     def get_completed_ids(self):
         """Load IDs that have already been evaluated from the CSV file."""
         if os.path.exists(self.out_csv):
@@ -373,9 +357,6 @@ class GeminiAlignmentEvaluator:
             try:
                 kr_img = Image.open(item['kr_path'])
                 en_img = Image.open(item['en_path'])
-
-                # Evaluate CLIP alignment first
-                clip_scores = self.evaluate_clip_alignment(item['text'], kr_img, en_img)
 
                 is_swapped = random.random() > 0.5
                 img_a = en_img if is_swapped else kr_img
@@ -467,8 +448,7 @@ class GeminiAlignmentEvaluator:
                     "is_swapped": is_swapped,
                     "reason": reason,
                     "analysis_people_A": analysis_a,
-                    "analysis_people_B": analysis_b,
-                    **clip_scores  # Add CLIP scores
+                    "analysis_people_B": analysis_b
                 }
                 batch_results.append(res)
 
