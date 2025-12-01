@@ -7,6 +7,7 @@ import hashlib
 import numpy as np
 import pandas as pd
 import argparse
+from datetime import datetime
 from PIL import Image
 from tqdm import tqdm
 from typing import List, Dict, Any
@@ -31,23 +32,87 @@ class CLIPAlignmentEvaluator:
         self.image_model_path = os.path.abspath("./models_cache/qwen-image")
         self.koclip_model_path = os.path.abspath("./models_cache/clip-vit-large-patch14-ko")
 
-        # Directory setup based on mode
-        if self.evaluation_mode == 'translation':
-            self.kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
-            self.en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
-            self.mapping_file = os.path.join(self.args.output_dir, "tta_image_mapping.json")
-        elif self.evaluation_mode == 'image_comparison':
-            self.qwen_img_dir = os.path.join(args.output_dir, "qwen_images")
-            self.kimchi_img_dir = os.path.join(args.output_dir, "kimchi_images")
-            self.mapping_file = os.path.join(args.output_dir, "evaluation_results/qwen-image/image_context_mapping.json")
+        # Directory setup for translation mode
+        self.kr_img_dir = os.path.join(self.args.output_dir, "tta_images")
+        self.en_img_dir = os.path.join(self.args.output_dir, "comparison_en")
+        self.mapping_file = os.path.join(self.args.output_dir, "tta_image_mapping.json")
+
+    @staticmethod
+    def _compute_sample_key(item: Dict[str, Any]) -> str:
+        sample_id = item.get('id')
+        if sample_id:
+            return f"id::{sample_id}"
+        proc_text = item.get('proc_text')
+        if not proc_text:
+            return None
+        category = item.get('eval_category', '')
+        source = f"{proc_text}|||{category}"
+        return "hash::" + hashlib.sha1(source.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _count_missing_translations(samples: List[Dict[str, Any]]) -> int:
+        return sum(
+            1
+            for item in samples
+            if item.get('proc_text') and not item.get('en_prompt')
+        )
+
+    def _apply_cached_translations(self, samples: List[Dict[str, Any]], translation_map: Dict[str, str]) -> int:
+        if not translation_map:
+            return 0
+        applied = 0
+        for item in samples:
+            if not item.get('proc_text'):
+                continue
+            key = self._compute_sample_key(item)
+            if not key:
+                continue
+            cached_prompt = translation_map.get(key)
+            if cached_prompt:
+                item['en_prompt'] = cached_prompt
+                applied += 1
+        return applied
+
+    def _load_cached_translations(self, cache_file: str) -> Dict[str, str]:
+        if not os.path.exists(cache_file):
+            return {}
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Warning: Failed to read translation cache: {e}")
+            return {}
+
+        translations = {}
+        if isinstance(data, dict) and 'translations' in data:
+            entries = data.get('translations', {})
+            if isinstance(entries, dict):
+                for key, value in entries.items():
+                    if not key:
+                        continue
+                    if isinstance(value, dict):
+                        text = value.get('en_prompt')
+                    else:
+                        text = value
+                    if text:
+                        translations[key] = text.strip()
+        elif isinstance(data, list):
+            print("Loaded legacy translation cache format. Re-indexing entries...")
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                key = self._compute_sample_key(item)
+                if not key:
+                    continue
+                text = item.get('en_prompt')
+                if text:
+                    translations[key] = text.strip()
+        else:
+            print("Warning: Unrecognized translation cache format. Ignoring cache.")
+        return translations
 
     def load_and_sample_data(self, target_count=500) -> List[Dict]:
-        if self.evaluation_mode == 'translation':
-            return self._load_translation_data(target_count)
-        elif self.evaluation_mode == 'image_comparison':
-            return self._load_image_comparison_data()
-        else:
-            raise ValueError(f"Unknown evaluation mode: {self.evaluation_mode}")
+        return self._load_translation_data(target_count)
 
     def _load_translation_data(self, target_count=500) -> List[Dict]:
         print("Loading TTA dataset...")
@@ -124,74 +189,6 @@ class CLIPAlignmentEvaluator:
         print(f"Sampled {len(sampled_data)} items.")
         return sampled_data
 
-    def _load_image_comparison_data(self) -> List[Dict]:
-        """Load data for image comparison evaluation (Qwen vs Kimchi)"""
-        print("Loading image comparison data...")
-
-        if not os.path.exists(self.mapping_file):
-            print(f"Error: Mapping file not found: {self.mapping_file}")
-            return []
-
-        with open(self.mapping_file, 'r', encoding='utf-8') as f:
-            mapping = json.load(f)
-
-        context_to_image = mapping.get("context_to_image", {})
-        print(f"Loaded {len(context_to_image)} context-image mappings")
-
-        eval_pairs = []
-
-        for context, qwen_path in context_to_image.items():
-            if not context or not context.strip():
-                continue
-
-            filename = os.path.basename(qwen_path)
-            kimchi_path = os.path.join(self.kimchi_img_dir, filename)
-            qwen_full_path = os.path.join(self.qwen_img_dir, filename)
-
-            qwen_exists = os.path.exists(qwen_full_path)
-            kimchi_exists = os.path.exists(kimchi_path)
-
-            if not qwen_exists and not kimchi_exists:
-                continue
-
-            category = self._infer_category_from_filename(filename)
-
-            eval_pairs.append({
-                "context": context,
-                "qwen_path": qwen_full_path if qwen_exists else None,
-                "kimchi_path": kimchi_path if kimchi_exists else None,
-                "category": category,
-                "filename": filename
-            })
-
-        print(f"Prepared {len(eval_pairs)} evaluation pairs")
-
-        qwen_count = sum(1 for p in eval_pairs if p["qwen_path"])
-        kimchi_count = sum(1 for p in eval_pairs if p["kimchi_path"])
-        print(f"  - Qwen images: {qwen_count}")
-        print(f"  - Kimchi images: {kimchi_count}")
-
-        return eval_pairs
-
-    def _infer_category_from_filename(self, filename: str) -> str:
-        """Infer category from filename prefix"""
-        prefix_map = {
-            "age": "Age",
-            "disability_status": "Disability_status",
-            "gender_identity": "Gender_identity",
-            "nationality": "Nationality",
-            "physical_appearance": "Physical_appearance",
-            "race_ethnicity": "Race_ethnicity",
-            "religion": "Religion",
-            "ses": "SES",
-            "sexual_orientation": "Sexual_orientation",
-        }
-
-        fname_lower = filename.lower()
-        for prefix, category in prefix_map.items():
-            if fname_lower.startswith(prefix):
-                return category
-        return "Unknown"
 
     @staticmethod
     def _translation_worker(samples, llm_path, output_file):
@@ -254,11 +251,29 @@ class CLIPAlignmentEvaluator:
                 
                 for idx, en_text in zip(batch_indices, decoded):
                     samples[idx]['en_prompt'] = en_text.strip()
-            
+                    
+            translations = {}
+            skipped = 0
+            for item in samples:
+                key = CLIPAlignmentEvaluator._compute_sample_key(item)
+                if not key:
+                    skipped += 1
+                    continue
+                en_prompt = item.get('en_prompt')
+                if en_prompt:
+                    translations[key] = en_prompt.strip()
+            payload = {
+                "schema_version": 2,
+                "translations": translations,
+                "total_entries": len(translations),
+                "last_updated": datetime.utcnow().isoformat()
+            }
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
             with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(samples, f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
             print(f"Translations saved to {output_file}")
+            if skipped:
+                print(f"Note: {skipped} samples lacked cache keys and were not stored.")
             
         except Exception as e:
             print(f"Translation Worker Error: {e}")
@@ -267,21 +282,16 @@ class CLIPAlignmentEvaluator:
 
     def translate_prompts(self, samples: List[Dict]) -> List[Dict]:
         cache_file = os.path.join(self.args.output_dir, "translated_samples.json")
-        
-        if os.path.exists(cache_file):
-            print(f"Loading cached translations from {cache_file}...")
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cached_samples = json.load(f)
-                if len(cached_samples) == len(samples):
-                    print("Cache loaded successfully. Skipping translation.")
-                    return cached_samples
-                else:
-                    print(f"Cache size mismatch ({len(cached_samples)} vs {len(samples)}). Re-running translation.")
-            except Exception as e:
-                print(f"Error loading cache: {e}")
+        translation_map = self._load_cached_translations(cache_file)
+        if translation_map:
+            applied = self._apply_cached_translations(samples, translation_map)
+            print(f"Applied {applied} cached translations.")
+        missing = self._count_missing_translations(samples)
+        if missing == 0:
+            print("All samples already contain English translations. Skipping translation.")
+            return samples
 
-        print("Starting translation in separate process...")
+        print(f"{missing} samples require translation. Starting translation in separate process...")
         
         p = mp.Process(
             target=self._translation_worker,
@@ -294,10 +304,16 @@ class CLIPAlignmentEvaluator:
             print("Translation process failed.")
             return samples
         
-        if os.path.exists(cache_file):
-             with open(cache_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+        translation_map = self._load_cached_translations(cache_file)
+        if translation_map:
+            applied = self._apply_cached_translations(samples, translation_map)
+            print(f"Applied {applied} translations from refreshed cache.")
+        else:
+            print("Warning: Translation cache missing after worker execution.")
         
+        remaining = self._count_missing_translations(samples)
+        if remaining:
+            print(f"Warning: {remaining} samples still lack English translations.")
         return samples
 
     @staticmethod
@@ -378,17 +394,22 @@ class CLIPAlignmentEvaluator:
             return
 
         files_to_generate = []
+        existing_count = 0
         for s in valid_samples:
             phash = hashlib.md5(s['en_prompt'].encode('utf-8')).hexdigest()
             path = os.path.join(output_dir, f"en_{phash}.jpg")
             if not os.path.exists(path):
                 files_to_generate.append(s)
-        
+            else:
+                existing_count += 1
+
+        print(f"Total valid samples: {len(valid_samples)}")
+        print(f"Already generated: {existing_count}")
+        print(f"Need to generate: {len(files_to_generate)}")
+
         if not files_to_generate:
             print("All images already exist. Skipping generation.")
             return
-            
-        print(f"Need to generate {len(files_to_generate)} images out of {len(valid_samples)}.")
         
         import gc
         gc.collect()
@@ -410,10 +431,82 @@ class CLIPAlignmentEvaluator:
     def evaluate_alignment(self, samples: List[Dict]):
         if self.evaluation_mode == 'translation':
             return self._evaluate_translation_alignment(samples)
-        elif self.evaluation_mode == 'image_comparison':
-            return self._evaluate_image_comparison(samples)
         else:
             raise ValueError(f"Unknown evaluation mode: {self.evaluation_mode}")
+
+    def _get_completed_evaluation_ids(self, json_file: str) -> set:
+        """Load IDs that have already been evaluated from the JSON file."""
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if 'results' in data:
+                    return set(str(item.get('id', '')) for item in data['results'] if item.get('id'))
+            except Exception as e:
+                print(f"Warning: Could not read existing results: {e}")
+        return set()
+
+    def _print_evaluation_summary(self, json_file: str):
+        """Read the full JSON and print evaluation summary."""
+        if not os.path.exists(json_file):
+            return
+
+        try:
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            results = data.get('results', [])
+            total = len(results)
+            if total == 0:
+                return
+
+            print("\n" + "="*60)
+            print(" Evaluation Summary (Including previous runs)")
+            print("="*60)
+            print(f" Total Evaluated: {total}")
+
+            kr_scores = [r.get('score_kr_gen') for r in results if r.get('score_kr_gen') is not None]
+            en_scores = [r.get('score_en_gen') for r in results if r.get('score_en_gen') is not None]
+
+            if kr_scores and en_scores:
+                print(f" Avg KR Score: {sum(kr_scores)/len(kr_scores):.4f}")
+                print(f" Avg EN Score: {sum(en_scores)/len(en_scores):.4f}")
+                diff = sum(en_scores)/len(en_scores) - sum(kr_scores)/len(kr_scores)
+                print(f" Avg Difference (EN - KR): {diff:.4f}")
+
+            print(f"Results saved to {json_file}")
+
+        except Exception as e:
+            print(f"Error generating summary: {e}")
+
+    def _append_evaluation_results_to_json(self, new_results: List[Dict], json_file: str):
+        """Append new evaluation results to the JSON file."""
+        if not new_results: return
+
+        # Load existing results
+        existing_results = []
+        if os.path.exists(json_file):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    existing_results = data.get('results', [])
+            except Exception as e:
+                print(f"Warning: Could not read existing results: {e}")
+
+        # Combine existing and new results
+        all_results = existing_results + new_results
+
+        # Save all results
+        try:
+            data = {
+                "results": all_results,
+                "total_samples": len(all_results),
+                "last_updated": str(pd.Timestamp.now())
+            }
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Error saving results: {e}")
 
     def _evaluate_translation_alignment(self, samples: List[Dict]):
         print(f"Starting translation alignment evaluation with KoCLIP...")
@@ -437,6 +530,10 @@ class CLIPAlignmentEvaluator:
         except Exception as e:
             print(f"Failed to load KoCLIP: {e}")
             return
+
+        # Check for resume capability
+        out_json = os.path.join(self.args.output_dir, "alignment_comparison_koclip.json")
+        completed_ids = self._get_completed_evaluation_ids(out_json)
 
         results = []
         batch_size = 2
@@ -467,7 +564,23 @@ class CLIPAlignmentEvaluator:
                     'en_path': en_path
                 })
 
-        print(f"Found {len(eval_items)} pairs to evaluate. Processing in batches of {batch_size}...")
+        # Filter out already completed evaluations
+        to_evaluate = [item for item in eval_items if str(item['raw_item'].get('id', '')) not in completed_ids]
+
+        print(f"Total potential pairs: {len(eval_items)}")
+        print(f"Already completed: {len(completed_ids)}")
+        print(f"Remaining to evaluate: {len(to_evaluate)}")
+        print(f"Processing remaining pairs in batches of {batch_size}...")
+
+        if not to_evaluate:
+            print("All samples have already been evaluated!")
+            self._print_evaluation_summary(out_json)
+            return
+
+        eval_items = to_evaluate  # Use filtered list
+
+        batch_results = []  # For incremental saving
+        save_interval = 5  # Save every 5 batches
 
         for i in tqdm(range(0, len(eval_items), batch_size), desc="Evaluating"):
             batch = eval_items[i:i+batch_size]
@@ -520,236 +633,47 @@ class CLIPAlignmentEvaluator:
                     outputs_en = model(**inputs_en)
                     logits_en = outputs_en.logits_per_image.diag().cpu().numpy()
 
+                batch_eval_results = []
                 for v_idx, score_k, score_e in zip(valid_indices, logits_kr, logits_en):
                     original_item = batch[v_idx]['raw_item']
-                    results.append({
+                    result = {
+                        "id": original_item.get('id', f"unknown_{len(results)}"),
                         "category": original_item.get('eval_category', 'unknown'),
                         "kr_text": batch[v_idx]['kr_text'],
                         "score_kr_gen": float(score_k),
                         "score_en_gen": float(score_e)
-                    })
-
-            except Exception as e:
-                print(f"Batch evaluation error: {e}")
-                continue
-
-        if results:
-            df = pd.DataFrame(results)
-
-            print("\n" + "="*60)
-            print(" Translation Alignment Results (Evaluated by KoCLIP against KR Text)")
-            print("="*60)
-            print(f" Total Samples: {len(df)}")
-            print(f" Avg Score (KR Gen): {df['score_kr_gen'].mean():.4f}")
-            print(f" Avg Score (EN Gen): {df['score_en_gen'].mean():.4f}")
-
-            cat_summary = df.groupby("category")[["score_kr_gen", "score_en_gen"]].mean().reset_index()
-            cat_summary["diff"] = cat_summary["score_en_gen"] - cat_summary["score_kr_gen"]
-
-            print("\n" + "="*60)
-            print(" Category-wise CLIP Scores")
-            print("="*60)
-            print(f"{'Category':<20} | {'KR Gen Score':<12} | {'EN Gen Score':<12}")
-            print("-" * 60)
-            for _, row in cat_summary.iterrows():
-                print(f"{row['category'][:20]:<20} | {row['score_kr_gen']:.4f}       | {row['score_en_gen']:.4f}")
-            print("="*60)
-
-            out_csv = os.path.join(self.args.output_dir, "alignment_comparison_koclip.csv")
-            df.to_csv(out_csv, index=False, encoding='utf-8-sig')
-
-            out_summary = os.path.join(self.args.output_dir, "alignment_comparison_summary.csv")
-            cat_summary.to_csv(out_summary, index=False, encoding='utf-8-sig')
-
-            # Save JSON results
-            json_result = {
-                "total_samples": len(df),
-                "overall": {
-                    "avg_score_kr_gen": round(df['score_kr_gen'].mean(), 4),
-                    "avg_score_en_gen": round(df['score_en_gen'].mean(), 4),
-                    "diff_en_minus_kr": round(df['score_en_gen'].mean() - df['score_kr_gen'].mean(), 4)
-                },
-                "by_category": {},
-                "detailed_results": results
-            }
-            for _, row in cat_summary.iterrows():
-                json_result["by_category"][row['category']] = {
-                    "avg_score_kr_gen": round(row['score_kr_gen'], 4),
-                    "avg_score_en_gen": round(row['score_en_gen'], 4),
-                    "diff_en_minus_kr": round(row['diff'], 4)
-                }
-
-            out_json = os.path.join(self.args.output_dir, "alignment_comparison_koclip.json")
-            with open(out_json, 'w', encoding='utf-8') as f:
-                json.dump(json_result, f, ensure_ascii=False, indent=2)
-
-            print(f"Detailed results saved to {out_csv}")
-            print(f"Summary saved to {out_summary}")
-            print(f"JSON results saved to {out_json}")
-
-    def _evaluate_image_comparison(self, eval_pairs: List[Dict]):
-        """Evaluate alignment between Qwen and Kimchi generated images"""
-        print(f"Starting image comparison evaluation with KoCLIP...")
-
-        try:
-            model = CLIPModel.from_pretrained(self.koclip_model_path, local_files_only=True).to(self.device)
-            processor = CLIPProcessor.from_pretrained(self.koclip_model_path, local_files_only=True)
-        except Exception as e:
-            print(f"Failed to load KoCLIP: {e}")
-            return
-
-        results = []
-        batch_size = 4
-
-        print(f"Processing {len(eval_pairs)} pairs in batches of {batch_size}...")
-
-        for i in tqdm(range(0, len(eval_pairs), batch_size), desc="Evaluating"):
-            batch = eval_pairs[i:i+batch_size]
-
-            qwen_images = []
-            kimchi_images = []
-            texts = []
-            valid_items = []
-
-            for item in batch:
-                qwen_path = item.get('qwen_path')
-                kimchi_path = item.get('kimchi_path')
-                context = item.get('context', '')
-
-                if not context:
-                    continue
-
-                qwen_img = None
-                kimchi_img = None
-
-                try:
-                    if qwen_path and os.path.exists(qwen_path):
-                        qwen_img = Image.open(qwen_path).convert("RGB")
-                    if kimchi_path and os.path.exists(kimchi_path):
-                        kimchi_img = Image.open(kimchi_path).convert("RGB")
-                except Exception as e:
-                    print(f"Error loading images: {e}")
-                    continue
-
-                # Need at least one image to evaluate
-                if qwen_img is None and kimchi_img is None:
-                    continue
-
-                qwen_images.append(qwen_img)
-                kimchi_images.append(kimchi_img)
-                texts.append(context)
-                valid_items.append(item)
-
-            if not valid_items:
-                continue
-
-            try:
-                # Evaluate Qwen images if available
-                qwen_scores = []
-                if any(img is not None for img in qwen_images):
-                    valid_qwen_indices = [i for i, img in enumerate(qwen_images) if img is not None]
-                    if valid_qwen_indices:
-                        valid_qwen_texts = [texts[i] for i in valid_qwen_indices]
-                        valid_qwen_images = [qwen_images[i] for i in valid_qwen_indices]
-
-                        inputs_qwen = processor(
-                            text=valid_qwen_texts,
-                            images=valid_qwen_images,
-                            return_tensors="pt",
-                            padding=True,
-                            truncation=True,
-                            max_length=77
-                        ).to(self.device)
-
-                        with torch.no_grad():
-                            outputs_qwen = model(**inputs_qwen)
-                            qwen_logits = outputs_qwen.logits_per_image.diag().cpu().numpy()
-
-                        # Map back to original indices
-                        qwen_score_map = {}
-                        for idx, score in zip(valid_qwen_indices, qwen_logits):
-                            qwen_score_map[idx] = score
-
-                        qwen_scores = [qwen_score_map.get(i, None) for i in range(len(texts))]
-
-                # Evaluate Kimchi images if available
-                kimchi_scores = []
-                if any(img is not None for img in kimchi_images):
-                    valid_kimchi_indices = [i for i, img in enumerate(kimchi_images) if img is not None]
-                    if valid_kimchi_indices:
-                        valid_kimchi_texts = [texts[i] for i in valid_kimchi_indices]
-                        valid_kimchi_images = [kimchi_images[i] for i in valid_kimchi_indices]
-
-                        inputs_kimchi = processor(
-                            text=valid_kimchi_texts,
-                            images=valid_kimchi_images,
-                            return_tensors="pt",
-                            padding=True,
-                            truncation=True,
-                            max_length=77
-                        ).to(self.device)
-
-                        with torch.no_grad():
-                            outputs_kimchi = model(**inputs_kimchi)
-                            kimchi_logits = outputs_kimchi.logits_per_image.diag().cpu().numpy()
-
-                        # Map back to original indices
-                        kimchi_score_map = {}
-                        for idx, score in zip(valid_kimchi_indices, kimchi_logits):
-                            kimchi_score_map[idx] = score
-
-                        kimchi_scores = [kimchi_score_map.get(i, None) for i in range(len(texts))]
-
-                # Store results
-                for j, item in enumerate(valid_items):
-                    result = {
-                        "context": texts[j],
-                        "category": item.get('category', 'Unknown'),
-                        "filename": item.get('filename', ''),
                     }
-
-                    if j < len(qwen_scores) and qwen_scores[j] is not None:
-                        result["qwen_score"] = float(qwen_scores[j])
-                    if j < len(kimchi_scores) and kimchi_scores[j] is not None:
-                        result["kimchi_score"] = float(kimchi_scores[j])
-
                     results.append(result)
+                    batch_eval_results.append(result)
+
+                # Incremental save
+                if batch_eval_results:
+                    batch_results.extend(batch_eval_results)
+                    if len(batch_results) >= save_interval:
+                        self._append_evaluation_results_to_json(batch_results, out_json)
+                        batch_results = []  # Reset batch
 
             except Exception as e:
                 print(f"Batch evaluation error: {e}")
                 continue
 
+        # Save remaining batch results
+        if batch_results:
+            self._append_evaluation_results_to_json(batch_results, out_json)
+
         if results:
             df = pd.DataFrame(results)
 
-            print("\n" + "="*60)
-            print(" Image Comparison Results (Qwen vs Kimchi)")
-            print("="*60)
-            print(f" Total Samples: {len(df)}")
+        # Print final summary including all completed evaluations
+        self._print_evaluation_summary(out_json)
 
-            if 'qwen_score' in df.columns:
-                print(f" Avg Qwen Score: {df['qwen_score'].mean():.4f}")
-            if 'kimchi_score' in df.columns:
-                print(f" Avg Kimchi Score: {df['kimchi_score'].mean():.4f}")
-
-            if 'qwen_score' in df.columns and 'kimchi_score' in df.columns:
-                both_scores = df.dropna(subset=['qwen_score', 'kimchi_score'])
-                if len(both_scores) > 0:
-                    print(f" Samples with both scores: {len(both_scores)}")
-                    print(f" Qwen better: {(both_scores['qwen_score'] > both_scores['kimchi_score']).sum()}")
-                    print(f" Kimchi better: {(both_scores['kimchi_score'] > both_scores['qwen_score']).sum()}")
-
-            out_csv = os.path.join(self.args.output_dir, "image_comparison_results.csv")
-            df.to_csv(out_csv, index=False, encoding='utf-8-sig')
-
-            print(f"Results saved to {out_csv}")
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate CLIP-based alignment using different modes")
     parser.add_argument("--output_dir", default="./outputs")
     parser.add_argument("--samples", type=int, default=500, help="Number of samples to evaluate. Set -1 for all available data.")
     parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--evaluation_mode", choices=['translation', 'image_comparison'],
+    parser.add_argument("--evaluation_mode", choices=['translation'],
                        default='translation', help="Evaluation mode to use")
     args = parser.parse_args()
 
