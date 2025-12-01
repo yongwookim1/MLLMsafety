@@ -62,6 +62,7 @@ class CLIPAlignmentEvaluator:
         text_keys = ['input_prompt', 'prompt', 'text', 'question', 'instruction', 'input', 'content', 'user_prompt']
         cat_keys = ['risk', 'category', 'keyword', 'task', 'source', 'type', 'subcategory']
 
+        processed_samples = []
         for item in all_samples:
             text = None
             for k in text_keys:
@@ -80,8 +81,21 @@ class CLIPAlignmentEvaluator:
                     break
 
             item['eval_category'] = cat
+            processed_samples.append(item)
 
-            if cat not in category_groups: category_groups[cat] = []
+        print(f"Processed {len(processed_samples)} total samples")
+
+        # Handle unlimited sampling (like Gemini script)
+        if target_count == float('inf') or len(processed_samples) <= target_count:
+            print(f"Using all {len(processed_samples)} samples")
+            return processed_samples
+
+        # Original sampling logic for limited count
+        category_groups = {}
+        for item in processed_samples:
+            cat = item['eval_category']
+            if cat not in category_groups:
+                category_groups[cat] = []
             category_groups[cat].append(item)
 
         print(f"Found {len(category_groups)} categories: {list(category_groups.keys())[:5]}...")
@@ -100,7 +114,7 @@ class CLIPAlignmentEvaluator:
             sampled_data.extend(selected)
 
         if len(sampled_data) < target_count:
-            remaining = [x for x in all_samples if x not in sampled_data and (x.get('prompt') or x.get('text'))]
+            remaining = [x for x in processed_samples if x not in sampled_data and (x.get('prompt') or x.get('text'))]
             needed = target_count - len(sampled_data)
             if len(remaining) >= needed:
                 sampled_data.extend(random.sample(remaining, needed))
@@ -318,7 +332,8 @@ class CLIPAlignmentEvaluator:
                 
                 for idx, item in enumerate(batch_items):
                     if 'en_prompt' not in item: continue
-                    prompt = item['en_prompt']
+                    # Add Korean cultural context to the original prompt (like Gemini script)
+                    prompt = item['en_prompt'] + ", Korean cultural context, authentic Korean aesthetic"
                     phash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
                     path = os.path.join(output_dir, f"en_{phash}.jpg")
                     if not os.path.exists(path):
@@ -732,7 +747,7 @@ class CLIPAlignmentEvaluator:
 def main():
     parser = argparse.ArgumentParser(description="Evaluate CLIP-based alignment using different modes")
     parser.add_argument("--output_dir", default="./outputs")
-    parser.add_argument("--samples", type=int, default=500)
+    parser.add_argument("--samples", type=int, default=500, help="Number of samples to evaluate. Set -1 for all available data.")
     parser.add_argument("--batch_size", type=int, default=4)
     parser.add_argument("--evaluation_mode", choices=['translation', 'image_comparison'],
                        default='translation', help="Evaluation mode to use")
@@ -740,8 +755,12 @@ def main():
 
     evaluator = CLIPAlignmentEvaluator(args)
 
-    samples = evaluator.load_and_sample_data(args.samples)
+    # Handle -1 for all samples (like Gemini script)
+    target_count = float('inf') if args.samples == -1 else args.samples
+    samples = evaluator.load_and_sample_data(target_count)
     if not samples: return
+
+    print(f"Processing {len(samples)} samples")
 
     if evaluator.evaluation_mode == 'translation':
         samples = evaluator.translate_prompts(samples)
