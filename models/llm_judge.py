@@ -55,7 +55,7 @@ class LLMJudge:
         model_path = self.judge_config.get("local_path", "").lower()
         
         # Check if model is VLM based on name or config
-        self.is_vlm = "VL" in model_name or "VL" in model_path
+        self.is_vlm = "vl" in model_name or "vl" in model_path
         
         # Check if model is Qwen3
         self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
