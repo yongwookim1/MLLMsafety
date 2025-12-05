@@ -390,10 +390,38 @@ class TTAEvaluationPipeline:
         # Extract judge model name for result folder organization
         judge_config = self.config.get("models", {}).get("judge", {})
         judge_name = judge_config.get("name", "unknown").lower()
-        if "qwen3" in judge_name:
-            self.judge_model_name = "qwen3"
-        elif "qwen2.5" in judge_name or "qwen2_5" in judge_name:
-            self.judge_model_name = "qwen2.5"
+        
+        # Determine simplified model name for folder structure
+        if "qwen" in judge_name:
+            # Start with base version
+            if "qwen3" in judge_name:
+                model_id = "qwen3"
+            elif "qwen2.5" in judge_name or "qwen2_5" in judge_name:
+                model_id = "qwen2.5"
+            else:
+                model_id = "qwen"
+            
+            # Add VL suffix if applicable
+            if "vl" in judge_name:
+                model_id += "-vl"
+                
+            # Add size suffix
+            if "72b" in judge_name:
+                model_id += "-72b"
+            elif "32b" in judge_name:
+                model_id += "-32b"
+            elif "14b" in judge_name:
+                model_id += "-14b"
+            elif "7b" in judge_name:
+                model_id += "-7b"
+            elif "3b" in judge_name:
+                model_id += "-3b"
+            elif "1.5b" in judge_name:
+                model_id += "-1.5b"
+            elif "0.5b" in judge_name:
+                model_id += "-0.5b"
+                
+            self.judge_model_name = model_id
         else:
             self.judge_model_name = judge_name.replace("/", "_").replace(".", "_")
 
