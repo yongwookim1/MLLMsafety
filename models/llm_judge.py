@@ -131,13 +131,69 @@ class LLMJudge:
         image: Optional[any] = None,
         use_image: bool = False
     ) -> str:
-        # Force text-only inference regardless of image input
+        if self.is_vlm and use_image and image is not None:
+            return self.run_batch([prompt], [image])[0]
         return self.run_batch([prompt])[0]
 
-    def run_batch(self, prompts: List[str]) -> List[str]:
+    def run_batch(self, prompts: List[str], images: Optional[List[Any]] = None) -> List[str]:
         if not prompts:
             return []
+        
+        if self.is_vlm and images is not None and any(img is not None for img in images):
+            # Ensure images list matches prompts length if provided
+            if len(images) != len(prompts):
+                # Pad with None if needed or handle error. 
+                # Assuming caller provides matching list.
+                pass
+            return self._run_vlm_batch(prompts, images)
+            
         return self._run_text_batch(prompts)
+
+    def _run_vlm_batch(self, prompts: List[str], images: List[Any]) -> List[str]:
+        messages_batch = []
+        valid_images = []
+        
+        for prompt, image in zip(prompts, images):
+            content = []
+            if image is not None:
+                # Resize if needed
+                image = self._resize_image_if_needed(image)
+                content.append({"type": "image", "image": image})
+                valid_images.append(image)
+            content.append({"type": "text", "text": prompt})
+            messages_batch.append([{"role": "user", "content": content}])
+
+        texts = [
+            self.processor.apply_chat_template(
+                msg, tokenize=False, add_generation_prompt=True
+            )
+            for msg in messages_batch
+        ]
+        
+        inputs = self.processor(
+            text=texts,
+            images=valid_images if valid_images else None,
+            padding=True,
+            return_tensors="pt"
+        )
+        inputs = inputs.to(self.device)
+
+        with torch.no_grad():
+            generated_ids = self.model.generate(
+                **inputs,
+                generation_config=self.judge_generation_config,
+            )
+            
+        generated_ids_trimmed = [
+            out_ids[len(in_ids):]
+            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+        
+        return self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False
+        )
 
     def _run_text_batch(self, prompts: List[str]) -> List[str]:
         texts = []
