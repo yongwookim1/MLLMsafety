@@ -219,7 +219,31 @@ class EvaluationPipeline:
         with open(mapping_file, "r", encoding="utf-8") as f:
             mapping = json.load(f)
         
-        image_to_samples = mapping["image_to_samples"]
+        # FIX: Allow fallback to existing image if file doesn't exist but context is known
+        # This solves the issue where 'cnt' samples have same context as 'bsd' but no separate image file
+        # because generated images might be named after sample_id
+        context_to_image = mapping.get("context_to_image", {})
+        image_to_samples = mapping.get("image_to_samples", {})
+        
+        # Re-build image_to_samples to include all samples that map to an existing image via context
+        # This is necessary if original image_to_samples missed some IDs due to missing files
+        print("Re-mapping samples to existing images by context...")
+        all_samples = self.data_loader.get_all_samples()
+        repaired_image_to_samples = defaultdict(list)
+        
+        mapped_count = 0
+        for sample in all_samples:
+            context = sample["context"]
+            if context in context_to_image:
+                image_path = context_to_image[context]
+                # Only use if image actually exists
+                if os.path.exists(image_path):
+                    repaired_image_to_samples[image_path].append(sample)
+                    mapped_count += 1
+                    
+        image_to_samples = repaired_image_to_samples
+        print(f"Total mapped samples after repair: {mapped_count}")
+        
         results = []
         paths = self._get_prompt_output_paths(prompt_id)
         results_file = paths["comparison"]
