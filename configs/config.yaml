@@ -23,7 +23,7 @@ models:
 
     # Settings for Qwen3-VL-30B-A3B-Instruct
     name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
-    local_path: "/home/kyw1654/model_download/hub/models--Qwen--Qwen3-VL-30B-A3B-Instruct"  # Path to model directory
+    local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"  # Path to model directory
     
     torch_dtype: "bfloat16"
     device_map: "auto"
@@ -34,7 +34,7 @@ models:
     
     # Settings for Qwen3-VL-30B-A3B-Instruct
     name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
-    local_path: "/home/kyw1654/model_download/hub/models--Qwen--Qwen3-VL-30B-A3B-Instruct"
+    local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"
     
     torch_dtype: "bfloat16"
     device_map: "auto"
