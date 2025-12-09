@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2_5_VLForConditionalGeneration, AutoProcessor, GenerationConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2_5_VLForConditionalGeneration, AutoProcessor, GenerationConfig, AutoModel
 from typing import Optional, List, Dict, Any
 from PIL import Image
 import yaml
@@ -61,17 +61,28 @@ class LLMJudge:
         self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
         
         if self.is_vlm:
-            print("Detected VLM model. Loading with Qwen2_5_VLForConditionalGeneration...")
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                self.judge_config["local_path"],
-                torch_dtype=self.torch_dtype,
-                device_map=device_map,
-                local_files_only=True
-            )
+            if self.is_qwen3:
+                print("Detected Qwen3-VL model. Loading with AutoModel...")
+                self.model = AutoModel.from_pretrained(
+                    self.judge_config["local_path"],
+                    torch_dtype=self.torch_dtype,
+                    device_map=device_map,
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+            else:
+                print("Detected VLM model. Loading with Qwen2_5_VLForConditionalGeneration...")
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    self.judge_config["local_path"],
+                    torch_dtype=self.torch_dtype,
+                    device_map=device_map,
+                    local_files_only=True
+                )
             self.processor = AutoProcessor.from_pretrained(
                 self.judge_config["local_path"],
                 local_files_only=True,
-                padding_side="left"
+                padding_side="left",
+                trust_remote_code=True if self.is_qwen3 else False
             )
             tokenizer = getattr(self.processor, 'tokenizer', None)
             if tokenizer is not None:
@@ -347,4 +358,3 @@ class LLMJudge:
         )[0]
         
         return response
-

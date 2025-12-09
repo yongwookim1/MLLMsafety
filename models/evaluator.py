@@ -1,6 +1,6 @@
 import os
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, GenerationConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, GenerationConfig, AutoModel
 from typing import Optional, Any, List, Dict
 from PIL import Image
 import yaml
@@ -8,7 +8,7 @@ import yaml
 
 class Evaluator:
     """
-    Multimodal evaluator using Qwen2.5-VL model for text and image analysis.
+    Multimodal evaluator using Qwen2.5-VL or Qwen3-VL model for text and image analysis.
 
     Handles both text-only and text+image evaluation tasks with proper
     device management and memory optimization.
@@ -56,7 +56,7 @@ class Evaluator:
     
     def _load_model(self, device_map_override: Optional[Any] = None) -> None:
         """
-        Load the Qwen2.5-VL model and processor.
+        Load the Qwen2.5-VL or Qwen3-VL evaluation model and processor.
 
         Args:
             device_map_override: Override the default device mapping
@@ -65,11 +65,12 @@ class Evaluator:
             FileNotFoundError: If model directory doesn't exist
         """
         model_path = self.model_config["local_path"]
-        print(f"Loading Qwen2.5-VL evaluation model from {model_path}...")
+        model_name = self.model_config.get("name", "").lower()
+        print(f"Loading evaluation model from {model_path}...")
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(
-                f"Qwen2.5-VL model not found at {model_path}. "
+                f"Model not found at {model_path}. "
                 "Please run 'python scripts/download_models.py' first."
             )
 
@@ -81,26 +82,40 @@ class Evaluator:
             # Auto device mapping for CUDA if enabled
             if device_map == "auto" and self.device_config.get("use_cuda", True):
                 device_map = {"": self.device_config["cuda_device"]}
+        
+        # Check for Qwen3
+        is_qwen3 = "qwen3" in model_name or "qwen3" in model_path.lower()
 
-        # Load the multimodal model
-        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-            model_path,
-            torch_dtype=self.torch_dtype,
-            device_map=device_map,
-            local_files_only=True
-        )
+        if is_qwen3:
+            print("Detected Qwen3-VL model. Loading with AutoModel...")
+            self.model = AutoModel.from_pretrained(
+                model_path,
+                torch_dtype=self.torch_dtype,
+                device_map=device_map,
+                local_files_only=True,
+                trust_remote_code=True
+            )
+        else:
+            print("Loading with Qwen2_5_VLForConditionalGeneration...")
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_path,
+                torch_dtype=self.torch_dtype,
+                device_map=device_map,
+                local_files_only=True
+            )
 
         # Load the processor for text and image handling
         self.processor = AutoProcessor.from_pretrained(
             model_path,
             local_files_only=True,
-            padding_side="left"  # Better for generation tasks
+            padding_side="left",  # Better for generation tasks
+            trust_remote_code=True if is_qwen3 else False
         )
 
         # Configure tokenizer for generation
         self._configure_tokenizer()
 
-        print("Qwen2.5-VL model loaded successfully")
+        print("Model loaded successfully")
 
     def _configure_tokenizer(self) -> None:
         """Configure tokenizer settings for proper generation."""
