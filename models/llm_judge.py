@@ -61,23 +61,26 @@ class LLMJudge:
         self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
         
         if self.is_vlm:
-            if self.is_qwen3:
-                print("Detected Qwen3-VL model. Loading with AutoModel...")
+            print(f"Loading VLM model (Treating as Qwen2.5-VL compatible)...")
+            try:
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                    self.judge_config["local_path"],
+                    torch_dtype=self.torch_dtype,
+                    device_map=device_map,
+                    local_files_only=True,
+                    use_safetensors=True
+                )
+            except Exception as e:
+                print(f"Failed to load with specific class, falling back to AutoModel: {e}")
                 self.model = AutoModel.from_pretrained(
                     self.judge_config["local_path"],
                     torch_dtype=self.torch_dtype,
                     device_map=device_map,
                     local_files_only=True,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    use_safetensors=True
                 )
-            else:
-                print("Detected VLM model. Loading with Qwen2_5_VLForConditionalGeneration...")
-                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                    self.judge_config["local_path"],
-                    torch_dtype=self.torch_dtype,
-                    device_map=device_map,
-                    local_files_only=True
-                )
+            
             self.processor = AutoProcessor.from_pretrained(
                 self.judge_config["local_path"],
                 local_files_only=True,

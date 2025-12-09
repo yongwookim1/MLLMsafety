@@ -86,22 +86,24 @@ class Evaluator:
         # Check for Qwen3
         is_qwen3 = "qwen3" in model_name or "qwen3" in model_path.lower()
 
-        if is_qwen3:
-            print("Detected Qwen3-VL model. Loading with AutoModel...")
+        print(f"Loading model with Qwen2_5_VLForConditionalGeneration (Treating Qwen3 as Qwen2.5-VL compatible)...")
+        try:
+            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                model_path,
+                torch_dtype=self.torch_dtype,
+                device_map=device_map,
+                local_files_only=True,
+                use_safetensors=True  # Force usage of safetensors
+            )
+        except Exception as e:
+            print(f"Failed to load with specific class, falling back to AutoModel: {e}")
             self.model = AutoModel.from_pretrained(
                 model_path,
                 torch_dtype=self.torch_dtype,
                 device_map=device_map,
                 local_files_only=True,
-                trust_remote_code=True
-            )
-        else:
-            print("Loading with Qwen2_5_VLForConditionalGeneration...")
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                model_path,
-                torch_dtype=self.torch_dtype,
-                device_map=device_map,
-                local_files_only=True
+                trust_remote_code=True,
+                use_safetensors=True
             )
 
         # Load the processor for text and image handling
