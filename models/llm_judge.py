@@ -61,26 +61,29 @@ class LLMJudge:
         self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
         
         if self.is_vlm:
-            print(f"Loading VLM model (Treating as Qwen2.5-VL compatible)...")
+            print(f"Loading VLM model (Attempting Qwen3VLMoe support)...")
             try:
-                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                from transformers import Qwen3VLMoeForConditionalGeneration
+                print("Detected transformers with Qwen3VLMoeForConditionalGeneration support.")
+                self.model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
                     self.judge_config["local_path"],
                     torch_dtype=self.torch_dtype,
                     device_map=device_map,
                     local_files_only=True,
-                    use_safetensors=True
+                    trust_remote_code=True
                 )
-            except Exception as e:
-                print(f"Failed to load with specific class, falling back to AutoModel: {e}")
+            except ImportError:
+                print("Qwen3VLMoeForConditionalGeneration not found in transformers.")
+                print("Fallback: Loading with AutoModel and ignoring mismatched sizes (Risk: Partial initialization)")
                 self.model = AutoModel.from_pretrained(
                     self.judge_config["local_path"],
                     torch_dtype=self.torch_dtype,
                     device_map=device_map,
                     local_files_only=True,
                     trust_remote_code=True,
-                    use_safetensors=True
+                    ignore_mismatched_sizes=True
                 )
-            
+
             self.processor = AutoProcessor.from_pretrained(
                 self.judge_config["local_path"],
                 local_files_only=True,

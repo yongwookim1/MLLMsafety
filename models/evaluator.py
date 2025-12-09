@@ -86,31 +86,48 @@ class Evaluator:
         # Check for Qwen3
         is_qwen3 = "qwen3" in model_name or "qwen3" in model_path.lower()
 
-        print(f"Loading model with Qwen2_5_VLForConditionalGeneration (Treating Qwen3 as Qwen2.5-VL compatible)...")
+        print(f"Loading VLM model (Attempting Qwen3VLMoe support)...")
         try:
-            self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            from transformers import Qwen3VLMoeForConditionalGeneration
+            print("Detected transformers with Qwen3VLMoeForConditionalGeneration support.")
+            self.model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
                 model_path,
                 torch_dtype=self.torch_dtype,
                 device_map=device_map,
                 local_files_only=True,
-                use_safetensors=True  # Force usage of safetensors
+                trust_remote_code=True
             )
-        except Exception as e:
-            print(f"Failed to load with specific class, falling back to AutoModel: {e}")
-            self.model = AutoModel.from_pretrained(
-                model_path,
-                torch_dtype=self.torch_dtype,
-                device_map=device_map,
-                local_files_only=True,
-                trust_remote_code=True,
-                use_safetensors=True
-            )
+        except ImportError:
+            print("Qwen3VLMoeForConditionalGeneration not found in transformers.")
+            print("Fallback: Loading with AutoModel and ignoring mismatched sizes (Risk: Partial initialization)")
+            try:
+                self.model = AutoModel.from_pretrained(
+                    model_path,
+                    torch_dtype=self.torch_dtype,
+                    device_map=device_map,
+                    local_files_only=True,
+                    trust_remote_code=True,
+                    ignore_mismatched_sizes=True
+                )
+            except Exception as e:
+                print(f"AutoModel fallback failed: {e}")
+                try:
+                    self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                        model_path,
+                        torch_dtype=self.torch_dtype,
+                        device_map=device_map,
+                        local_files_only=True,
+                        use_safetensors=True,
+                        ignore_mismatched_sizes=True
+                    )
+                except Exception as e2:
+                    raise e2
 
         # Load the processor for text and image handling
         self.processor = AutoProcessor.from_pretrained(
             model_path,
             local_files_only=True,
-            padding_side="left",  # Better for generation tasks
+            padding_side="left",
             trust_remote_code=True if is_qwen3 else False
         )
 
