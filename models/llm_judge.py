@@ -139,7 +139,7 @@ class LLMJudge:
     def run_inference(
         self,
         prompt: str,
-        image: Optional[any] = None,
+        image: Optional[Any] = None,
         use_image: bool = False
     ) -> str:
         if self.is_vlm and use_image and image is not None:
@@ -151,11 +151,11 @@ class LLMJudge:
             return []
         
         if self.is_vlm and images is not None and any(img is not None for img in images):
-            # Ensure images list matches prompts length if provided
             if len(images) != len(prompts):
-                # Pad with None if needed or handle error. 
-                # Assuming caller provides matching list.
-                pass
+                raise ValueError(
+                    f"Length mismatch: prompts({len(prompts)}) != images({len(images)}). "
+                    f"Ensure both lists have the same length."
+                )
             return self._run_vlm_batch(prompts, images)
             
         return self._run_text_batch(prompts)
@@ -295,7 +295,7 @@ class LLMJudge:
             return image.resize(new_size, Image.Resampling.LANCZOS)
         return image
 
-    def _run_vlm_inference(self, prompt: str, image: Optional[any] = None, use_image: bool = False) -> str:
+    def _run_vlm_inference(self, prompt: str, image: Optional[Any] = None, use_image: bool = False) -> str:
         if use_image and image is not None:
             # Resize image to prevent OOM
             image = self._resize_image_if_needed(image)

@@ -39,9 +39,9 @@ def extract_answer(response: str, choices: List[str]) -> Optional[str]:
         letter_label = chr(65 + i)  # A=65, B=66, etc.
 
         # Check various letter formats: "A", "A.", "A)"
-        if (letter_label == response_upper[0] or
-            f"{letter_label}." in response_upper or
-            f"{letter_label})" in response_upper):
+        if (response_upper and letter_label == response_upper[0]) or \
+            f"{letter_label}." in response_upper or \
+            f"{letter_label})" in response_upper:
             return choice
 
     # Prepare lowercase versions for text matching

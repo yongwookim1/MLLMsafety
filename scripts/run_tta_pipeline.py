@@ -11,22 +11,40 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 def check_requirements():
+    """Check if required files exist based on config.yaml settings."""
+    import yaml
+    
+    config_path = project_root / "configs" / "config.yaml"
+    if not config_path.exists():
+        print(f"Config file not found: {config_path}")
+        return False
+    
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+    
+    # Get paths from config
+    dataset_config = config.get("dataset", {})
+    models_config = config.get("models", {})
+    
+    local_cache_dir = dataset_config.get("local_cache_dir", "./data_cache")
+    image_gen_path = models_config.get("image_generator", {}).get("local_path", "")
+    evaluator_path = models_config.get("evaluator", {}).get("local_path", "")
+    
     required_files = [
-        "data_cache/TTA01_AssurAI/data-00000-of-00001.arrow",
-        "models_cache/qwen-image",
-        "models_cache/qwen2.5-vl-7b-instruct",
-        "models_cache/qwen2.5-7b-instruct"
+        (os.path.join(local_cache_dir, "TTA01_AssurAI"), "TTA dataset"),
+        (image_gen_path, "Image generator model"),
+        (evaluator_path, "Evaluator model"),
     ]
 
     missing_files = []
-    for file_path in required_files:
-        if not os.path.exists(file_path):
-            missing_files.append(file_path)
+    for file_path, desc in required_files:
+        if file_path and not os.path.exists(file_path):
+            missing_files.append(f"{file_path} ({desc})")
 
     if missing_files:
         print("Missing required files:")
-        for file_path in missing_files:
-            print(f"  - {file_path}")
+        for file_info in missing_files:
+            print(f"  - {file_info}")
         print("\nRun the following commands first:")
         print("1. python scripts/manual_download_tta.py")
         print("2. python scripts/download_models.py")

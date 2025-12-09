@@ -106,6 +106,68 @@ def image_generation_worker(gpu_id, samples, config_path, output_dir, worker_out
         flush()
 
 
+def _get_image_path(sample, output_dir):
+    """Get the expected image path for a sample."""
+    sample_id = sample.get('id')
+    prompt = sample.get('input_prompt')
+    if not sample_id or not prompt:
+        return None
+    prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+    filename = f"{sample_id}_{prompt_hash}.jpg"
+    return os.path.join(output_dir, filename)
+
+
+def _filter_samples_without_images(samples, output_dir):
+    """Filter out samples that already have generated images."""
+    samples_to_process = []
+    skipped_count = 0
+    
+    for sample in samples:
+        image_path = _get_image_path(sample, output_dir)
+        if image_path is None:
+            continue
+        if os.path.exists(image_path):
+            skipped_count += 1
+        else:
+            samples_to_process.append(sample)
+    
+    return samples_to_process, skipped_count
+
+
+def _update_mapping_for_existing_images(samples, output_dir):
+    """Update mapping file for samples with existing images."""
+    mapping_file = os.path.join('outputs', 'tta_image_mapping.json')
+    
+    # Load existing mapping
+    existing_mapping = {}
+    if os.path.exists(mapping_file):
+        try:
+            with open(mapping_file, 'r', encoding='utf-8') as f:
+                existing_mapping = json.load(f)
+        except Exception:
+            pass
+    
+    # Add entries for existing images
+    updated = False
+    for sample in samples:
+        sample_id = sample.get('id')
+        prompt = sample.get('input_prompt')
+        image_path = _get_image_path(sample, output_dir)
+        
+        if image_path and os.path.exists(image_path) and sample_id not in existing_mapping:
+            existing_mapping[sample_id] = {
+                'image_path': image_path,
+                'prompt': prompt,
+                'original_modality': 'text'
+            }
+            updated = True
+    
+    if updated:
+        with open(mapping_file, 'w', encoding='utf-8') as f:
+            json.dump(existing_mapping, f, ensure_ascii=False, indent=2)
+        print(f"Updated mapping file: {mapping_file}")
+
+
 def process_tta_dataset():
     config_path = 'configs/config.yaml'
     if not os.path.exists(config_path):
@@ -126,6 +188,20 @@ def process_tta_dataset():
 
     text_samples = loader.get_text_samples()
     print(f"Found {len(text_samples)} text samples to augment with images.")
+    
+    # Filter out samples that already have images (before loading GPU)
+    samples_to_process, skipped_count = _filter_samples_without_images(text_samples, output_dir)
+    
+    if skipped_count > 0:
+        print(f"Skipping {skipped_count} samples with existing images.")
+    
+    if not samples_to_process:
+        print("All images already exist. Nothing to generate.")
+        # Still update mapping file with existing images
+        _update_mapping_for_existing_images(text_samples, output_dir)
+        return
+    
+    print(f"Processing {len(samples_to_process)} samples that need image generation.")
 
     mapping_file = os.path.join('outputs', 'tta_image_mapping.json')
     worker_files = []
@@ -136,12 +212,12 @@ def process_tta_dataset():
         print(f"🚀 Detected {num_gpus} GPUs. Starting parallel generation...")
         ctx = mp.get_context('spawn')
         processes = []
-        chunk_size = max(1, math.ceil(len(text_samples) / num_gpus))
+        chunk_size = max(1, math.ceil(len(samples_to_process) / num_gpus))
 
         for i in range(num_gpus):
             start_idx = i * chunk_size
-            end_idx = min((i + 1) * chunk_size, len(text_samples))
-            chunk = text_samples[start_idx:end_idx]
+            end_idx = min((i + 1) * chunk_size, len(samples_to_process))
+            chunk = samples_to_process[start_idx:end_idx]
 
             if not chunk:
                 continue
@@ -168,7 +244,7 @@ def process_tta_dataset():
         if os.path.exists(worker_file):
             os.remove(worker_file)
         worker_files.append(worker_file)
-        image_generation_worker(0, text_samples, config_path, output_dir, worker_file)
+        image_generation_worker(0, samples_to_process, config_path, output_dir, worker_file)
 
     mapping = _collect_worker_results(worker_files)
     _cleanup_worker_files(worker_files)
@@ -181,6 +257,19 @@ def process_tta_dataset():
             mapping = old_mapping
         except Exception:
             pass
+
+    # Also add skipped samples (existing images) to mapping
+    for sample in text_samples:
+        sample_id = sample.get('id')
+        prompt = sample.get('input_prompt')
+        image_path = _get_image_path(sample, output_dir)
+        
+        if sample_id and image_path and os.path.exists(image_path) and sample_id not in mapping:
+            mapping[sample_id] = {
+                'image_path': image_path,
+                'prompt': prompt,
+                'original_modality': 'text'
+            }
 
     with open(mapping_file, 'w', encoding='utf-8') as f:
         json.dump(mapping, f, ensure_ascii=False, indent=2)

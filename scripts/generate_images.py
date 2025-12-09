@@ -96,6 +96,9 @@ def main() -> None:
     print(f"Output directory: {output_dir}")
     print()
 
+    # Run the image generation process
+    run_image_generation(contexts, existing_contexts, image_generator, output_dir)
+
 
 def load_existing_contexts(mapping_file: str) -> set:
     """
@@ -184,30 +187,6 @@ def filter_political_contexts(contexts):
 
     print(f"Found {len(political_contexts)} political orientation contexts")
     return political_contexts
-
-    # Determine which samples to generate images for
-    if args.all_samples:
-        print("Loading all unique samples...")
-        max_samples = args.max_samples or max_contexts
-        contexts = data_loader.get_all_unique_samples(
-            max_samples=max_samples,
-            categories=args.categories,
-            bias_types=args.bias_types
-        )
-    elif args.categories or args.bias_types:
-        print(f"Loading samples for specific filters - categories: {args.categories}, bias_types: {args.bias_types}")
-        max_samples = args.max_samples or max_contexts
-        contexts = data_loader.get_all_unique_samples(
-            max_samples=max_samples,
-            categories=args.categories,
-            bias_types=args.bias_types
-        )
-    else:
-        print(f"Loading unique contexts (max: {max_contexts})...")
-        contexts = data_loader.get_unique_contexts(max_contexts=max_contexts)
-
-    # Run the image generation process
-    run_image_generation(contexts, existing_contexts, image_generator, output_dir)
 
 
 def run_image_generation(contexts, existing_contexts: set, image_generator, output_dir: str) -> None:
