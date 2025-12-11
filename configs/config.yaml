@@ -35,6 +35,8 @@ models:
     # Settings for Qwen3-VL-30B-A3B-Instruct
     name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
     local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"
+    # name: "Qwen/Qwen3-VL-8B-Instruct"
+    # local_path: "./models_cache/Qwen3-VL-8B-Instruct"
     
     torch_dtype: "bfloat16"
     device_map: "auto"
