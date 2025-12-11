@@ -30,10 +30,16 @@ class LLMJudge:
         self.is_vlm = False
         self.is_qwen3 = False
         self._load_model(device_map)
-        self.judge_generation_config = GenerationConfig(
-            max_new_tokens=self.eval_config.get("judge_max_new_tokens", 1024),
-            do_sample=False,
-        )
+        try:
+            self.judge_generation_config = GenerationConfig.from_pretrained(
+                self.judge_config["local_path"],
+                local_files_only=True
+            )
+        except:
+            self.judge_generation_config = GenerationConfig()
+
+        self.judge_generation_config.max_new_tokens = self.eval_config.get("judge_max_new_tokens", 1024)
+        self.judge_generation_config.do_sample = False
     
     def _load_model(self, device_map_override: Optional[Any] = None):
         print(f"Loading Judge model from {self.judge_config['local_path']}...")
