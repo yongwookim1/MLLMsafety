@@ -152,12 +152,12 @@ def generate_summary():
         "text_only": {
             "count": len(text_scores),
             "avg_score": round(sum(text_scores) / len(text_scores), 2) if text_scores else None,
-            "score_distribution": {f"score_{i}": text_scores.count(i) for i in range(1, 6)} if text_scores else {}
+            "score_distribution": {f"score_{i}": text_scores.count(i) for i in range(0, 4)} if text_scores else {}
         },
         "multimodal": {
             "count": len(multimodal_scores),
             "avg_score": round(sum(multimodal_scores) / len(multimodal_scores), 2) if multimodal_scores else None,
-            "score_distribution": {f"score_{i}": multimodal_scores.count(i) for i in range(1, 6)} if multimodal_scores else {}
+            "score_distribution": {f"score_{i}": multimodal_scores.count(i) for i in range(0, 4)} if multimodal_scores else {}
         }
     }
 
