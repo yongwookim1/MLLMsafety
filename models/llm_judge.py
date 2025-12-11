@@ -199,6 +199,7 @@ class LLMJudge:
             generated_ids = self.model.generate(
                 **inputs,
                 generation_config=self.judge_generation_config,
+                do_sample=False,
             )
             
         generated_ids_trimmed = [
@@ -243,6 +244,7 @@ class LLMJudge:
             generated_ids = self.model.generate(
                 model_inputs.input_ids,
                 generation_config=self.judge_generation_config,
+                do_sample=False,
             )
         
         generated_ids = [
@@ -280,6 +282,7 @@ class LLMJudge:
             generated_ids = self.model.generate(
                 **inputs,
                 generation_config=self.judge_generation_config,
+                do_sample=False,
             )
         
         generated_ids_trimmed = [
@@ -350,6 +353,7 @@ class LLMJudge:
             generated_ids = self.model.generate(
                 **inputs,
                 generation_config=self.judge_generation_config,
+                do_sample=False,
             )
             
         generated_ids_trimmed = [
