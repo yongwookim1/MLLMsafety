@@ -411,6 +411,8 @@ class TTAEvaluationPipeline:
                 model_id += "-72b"
             elif "32b" in judge_name:
                 model_id += "-32b"
+            elif "30b" in judge_name:
+                model_id += "-30b"
             elif "14b" in judge_name:
                 model_id += "-14b"
             elif "7b" in judge_name:
