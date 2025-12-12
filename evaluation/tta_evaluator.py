@@ -175,14 +175,15 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
         import traceback
         traceback.print_exc()
 
-def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], output_dir: str):
+def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], evaluations_dir: str):
     """Worker function for distributed safety evaluation."""
     try:
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
         
         # GPU assignment handled by device_map in model loading
         device_map = {"": f"cuda:{gpu_id}"}
-        worker_output_file = os.path.join(output_dir, f"evaluation_results_gpu_{gpu_id}.json")
+        # Save GPU results in evaluations_dir (already includes judge model name)
+        worker_output_file = os.path.join(evaluations_dir, f"evaluation_results_gpu_{gpu_id}.json")
         
         judge_model = LLMJudge(config_path, device_map=device_map)
         
@@ -599,7 +600,7 @@ class TTAEvaluationPipeline:
         for gpu_id in range(active_gpus):
             p = ctx.Process(
                 target=_judge_worker,
-                args=(gpu_id, self.config_path, valid_chunks[gpu_id], self.output_dir)
+                args=(gpu_id, self.config_path, valid_chunks[gpu_id], self.evaluations_dir)
             )
             p.start()
             processes.append(p)
@@ -611,7 +612,7 @@ class TTAEvaluationPipeline:
         all_results = existing_results[:]
         print("Merging distributed evaluation results...")
         for gpu_id in range(active_gpus):
-            worker_file = os.path.join(self.output_dir, f"evaluation_results_gpu_{gpu_id}.json")
+            worker_file = os.path.join(self.evaluations_dir, f"evaluation_results_gpu_{gpu_id}.json")
             if os.path.exists(worker_file):
                 with open(worker_file, "r", encoding="utf-8") as f:
                     worker_results = json.load(f)
