@@ -18,12 +18,12 @@ models:
     # Qwen2_5-VL models: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
     # Qwen3-VL models: Qwen/Qwen3-VL-30B-A3B-Instruct
     
-    # name: "Qwen/Qwen2.5-VL-7B-Instruct"  # Options: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
-    # local_path: "./models_cache/qwen2.5-vl-7b-instruct"
+    name: "Qwen/Qwen2.5-VL-7B-Instruct"
+    local_path: "./models_cache/qwen2.5-vl-7b-instruct"
 
     # Settings for Qwen3-VL-30B-A3B-Instruct
-    name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
-    local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"  # Path to model directory
+    # name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    # local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"
     
     torch_dtype: "bfloat16"
     device_map: "auto"

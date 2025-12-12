@@ -400,49 +400,38 @@ class TTAEvaluationPipeline:
         
         self.loader = TTALoader(config_path)
 
-        # Extract judge model name for result folder organization
-        judge_config = self.config.get("models", {}).get("judge", {})
-        judge_name = judge_config.get("name", "unknown").lower()
-        
-        # Determine simplified model name for folder structure
-        if "qwen" in judge_name:
-            # Start with base version
-            if "qwen3" in judge_name:
-                model_id = "qwen3"
-            elif "qwen2.5" in judge_name or "qwen2_5" in judge_name:
-                model_id = "qwen2.5"
-            else:
-                model_id = "qwen"
-            
-            # Add VL suffix if applicable
-            if "vl" in judge_name:
-                model_id += "-vl"
-                
-            # Add size suffix
-            if "72b" in judge_name:
-                model_id += "-72b"
-            elif "32b" in judge_name:
-                model_id += "-32b"
-            elif "30b" in judge_name:
-                model_id += "-30b"
-            elif "14b" in judge_name:
-                model_id += "-14b"
-            elif "7b" in judge_name:
-                model_id += "-7b"
-            elif "3b" in judge_name:
-                model_id += "-3b"
-            elif "1.5b" in judge_name:
-                model_id += "-1.5b"
-            elif "0.5b" in judge_name:
-                model_id += "-0.5b"
-                
-            self.judge_model_name = model_id
-        else:
-            self.judge_model_name = judge_name.replace("/", "_").replace(".", "_")
+        # Extract model names for result folder organization
+        def get_simplified_model_name(model_name: str) -> str:
+            name = model_name.lower()
+            if "qwen" in name:
+                if "qwen3" in name:
+                    model_id = "qwen3"
+                elif "qwen2.5" in name or "qwen2_5" in name:
+                    model_id = "qwen2.5"
+                else:
+                    model_id = "qwen"
+                if "vl" in name:
+                    model_id += "-vl"
+                for size in ["72b", "32b", "30b", "14b", "8b", "7b", "3b", "1.5b", "0.5b"]:
+                    if size in name:
+                        model_id += f"-{size}"
+                        break
+                return model_id
+            return name.replace("/", "_").replace(".", "_")
 
-        # Structured output directories
+        # Evaluator (target) model name
+        evaluator_config = self.config.get("models", {}).get("evaluator", {})
+        evaluator_name = evaluator_config.get("name", "unknown")
+        self.evaluator_model_name = get_simplified_model_name(evaluator_name)
+
+        # Judge model name
+        judge_config = self.config.get("models", {}).get("judge", {})
+        judge_name = judge_config.get("name", "unknown")
+        self.judge_model_name = get_simplified_model_name(judge_name)
+
+        # Structured output directories (responses organized by evaluator model)
         self.output_dir = os.path.join("outputs", "tta_results")
-        self.responses_dir = os.path.join(self.output_dir, "responses")
+        self.responses_dir = os.path.join(self.output_dir, "responses", self.evaluator_model_name)
         self.evaluations_dir = os.path.join(self.output_dir, "evaluations", self.judge_model_name)
 
         os.makedirs(self.responses_dir, exist_ok=True)
@@ -527,7 +516,7 @@ class TTAEvaluationPipeline:
         for gpu_id in range(active_gpus):
             p = ctx.Process(
                 target=_generation_worker,
-                args=(gpu_id, self.config_path, valid_chunks[gpu_id], self.mapping_file, self.output_dir)
+                args=(gpu_id, self.config_path, valid_chunks[gpu_id], self.mapping_file, self.responses_dir)
             )
             p.start()
             processes.append(p)
@@ -539,7 +528,7 @@ class TTAEvaluationPipeline:
         all_results = existing_results[:]
         print("Merging distributed results...")
         for gpu_id in range(active_gpus):
-            worker_file = os.path.join(self.output_dir, f"generated_responses_gpu_{gpu_id}.json")
+            worker_file = os.path.join(self.responses_dir, f"generated_responses_gpu_{gpu_id}.json")
             if os.path.exists(worker_file):
                 with open(worker_file, "r", encoding="utf-8") as f:
                     worker_results = json.load(f)
