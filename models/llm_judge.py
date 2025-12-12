@@ -67,27 +67,31 @@ class LLMJudge:
         self.is_qwen3 = "qwen3" in model_name or "qwen3" in model_path
         
         if self.is_vlm:
-            print(f"Loading VLM model (Attempting Qwen3VLMoe support)...")
-            try:
-                from transformers import Qwen3VLMoeForConditionalGeneration
-                print("Detected transformers with Qwen3VLMoeForConditionalGeneration support.")
-                self.model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+            if self.is_qwen3:
+                try:
+                    from transformers import Qwen3VLMoeForConditionalGeneration
+                    self.model = Qwen3VLMoeForConditionalGeneration.from_pretrained(
+                        self.judge_config["local_path"],
+                        torch_dtype=self.torch_dtype,
+                        device_map=device_map,
+                        local_files_only=True,
+                        trust_remote_code=True
+                    )
+                except ImportError:
+                    self.model = AutoModel.from_pretrained(
+                        self.judge_config["local_path"],
+                        torch_dtype=self.torch_dtype,
+                        device_map=device_map,
+                        local_files_only=True,
+                        trust_remote_code=True
+                    )
+            else:
+                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
                     self.judge_config["local_path"],
                     torch_dtype=self.torch_dtype,
                     device_map=device_map,
                     local_files_only=True,
-                    trust_remote_code=True
-                )
-            except ImportError:
-                print("Qwen3VLMoeForConditionalGeneration not found in transformers.")
-                print("Fallback: Loading with AutoModel and ignoring mismatched sizes (Risk: Partial initialization)")
-                self.model = AutoModel.from_pretrained(
-                    self.judge_config["local_path"],
-                    torch_dtype=self.torch_dtype,
-                    device_map=device_map,
-                    local_files_only=True,
-                    trust_remote_code=True,
-                    ignore_mismatched_sizes=True
+                    use_safetensors=True
                 )
 
             self.processor = AutoProcessor.from_pretrained(
