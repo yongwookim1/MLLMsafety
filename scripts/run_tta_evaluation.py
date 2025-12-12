@@ -17,8 +17,12 @@ def main():
         pipeline = TTAEvaluationPipeline()
         print("Running evaluation...")
         pipeline.run_evaluation(limit=args.limit)
+        print("Evaluation completed")
     except Exception as e:
         print(f"An error occurred: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 if __name__ == "__main__":
     main()
