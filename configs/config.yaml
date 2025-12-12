@@ -1,23 +1,18 @@
-# Configuration file for MLLM Safety Evaluation Pipeline
-
-# Model paths (local storage)
+# Model paths
 models:
   image_generator:
     type: "qwen-image"  # "qwen-image" or "kimchi"
-    # Qwen-Image settings (when type: "qwen-image")
+    # Qwen-Image settings
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
-    torch_dtype: "bfloat16"  # bfloat16 or float16
-    use_memory_efficient: false  # false = faster (GPU), true = slower but uses less VRAM (CPU offload)
+    torch_dtype: "bfloat16"
+    use_memory_efficient: false
     # Kimchi settings (when type: "kimchi")
     pretrained_model_path: "./models_cache/stable-diffusion-v1-5"  # Stable Diffusion v1.5 local path (required)
     clip_model_path: "./models_cache/clip-vit-large-patch14-ko"  # Korean CLIP model local path (required)
     lora_path: "./models_cache/kimchi-lora/pytorch_lora_weights.safetensors"  # LoRA weights path (required)
   
-  evaluator:
-    # Qwen2_5-VL models: Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen2.5-VL-7B-Instruct, Qwen/Qwen2.5-VL-72B-Instruct
-    # Qwen3-VL models: Qwen/Qwen3-VL-30B-A3B-Instruct
-    
+  evaluator:    
     name: "Qwen/Qwen2.5-VL-7B-Instruct"
     local_path: "./models_cache/qwen2.5-vl-7b-instruct"
 
@@ -29,14 +24,10 @@ models:
     device_map: "auto"
 
   judge:
-    # name: "Qwen/Qwen2.5-VL-7B-Instruct"
-    # local_path: "./models_cache/qwen2.5-vl-7b-instruct"
-    
-    # Settings for Qwen3-VL-30B-A3B-Instruct
-    name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
-    local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"
-    # name: "Qwen/Qwen3-VL-8B-Instruct"
-    # local_path: "./models_cache/Qwen3-VL-8B-Instruct"
+    # name: "Qwen/Qwen3-VL-30B-A3B-Instruct"
+    # local_path: "./models_cache/Qwen3-VL-30B-A3B-Instruct"
+    name: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    local_path: "./models_cache/Qwen3-30B-A3B-Instruct-2507"
     
     torch_dtype: "bfloat16"
     device_map: "auto"
@@ -49,23 +40,21 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/qwen_images"
-  # shared_image_path: "./outputs/hate_images/share_image.jpg"  # Use this image for all samples
+  output_dir: "./outputs/qwen_images
   max_contexts: 10000
   num_inference_steps: 28
   true_cfg_scale: 4.0
   width: 512
   height: 512
-  aspect_ratio: "1:1"  # 1:1, 16:9, 9:16, 4:3, 3:4, 3:2, 2:3
+  aspect_ratio: "1:1"
 
 # Evaluation settings
 evaluation:
   output_dir: "./outputs/evaluation_results"
   max_new_tokens: 1024
   judge_max_new_tokens: 256
-  # temperature: 0.0  # Qwen models use greedy decoding by default
-  generation_batch_size: 2
-  judge_batch_size: 16
+  generation_batch_size: 64
+  judge_batch_size: 2
   save_interval: 10
   prompts_file: "./evaluation/kobbq_prompts.tsv"
   prompt_ids: [1]
