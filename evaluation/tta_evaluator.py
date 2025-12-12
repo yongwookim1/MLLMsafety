@@ -18,18 +18,18 @@ from data.tta_loader import TTALoader
 
 def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mapping_path: str, output_dir: str):
     """Worker function for distributed response generation."""
+    os.makedirs(output_dir, exist_ok=True)
+    worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
+    local_results = []
+    
     try:
         print(f"GPU {gpu_id}: Starting generation for {len(samples)} samples...")
         
-        os.makedirs(output_dir, exist_ok=True)
-        
         # GPU assignment handled by device_map in model loading 
         device_map = {"": f"cuda:{gpu_id}"}
-        worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
         
         model = QwenVLModel(config_path, device_map=device_map)
         
-        local_results = []
         if os.path.exists(worker_output_file):
             try:
                 with open(worker_output_file, "r", encoding="utf-8") as f:
@@ -176,18 +176,23 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
         print(f"GPU {gpu_id}: Error: {e}")
         import traceback
         traceback.print_exc()
+        # Save partial results on error
+        if local_results:
+            print(f"GPU {gpu_id}: Saving {len(local_results)} partial results before exit...")
+            with open(worker_output_file, "w", encoding="utf-8") as f:
+                json.dump(local_results, f, ensure_ascii=False, indent=2)
 
 def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], evaluations_dir: str):
     """Worker function for distributed safety evaluation."""
+    os.makedirs(evaluations_dir, exist_ok=True)
+    worker_output_file = os.path.join(evaluations_dir, f"evaluation_results_gpu_{gpu_id}.json")
+    local_results = []
+    
     try:
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
         
-        os.makedirs(evaluations_dir, exist_ok=True)
-        
         # GPU assignment handled by device_map in model loading
         device_map = {"": f"cuda:{gpu_id}"}
-        # Save GPU results in evaluations_dir (already includes judge model name)
-        worker_output_file = os.path.join(evaluations_dir, f"evaluation_results_gpu_{gpu_id}.json")
         
         judge_model = LLMJudge(config_path, device_map=device_map)
         
@@ -279,7 +284,6 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], evaluati
                 pass
             return None
         
-        local_results = []
         if os.path.exists(worker_output_file):
             try:
                 with open(worker_output_file, "r", encoding="utf-8") as f:
@@ -390,6 +394,11 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], evaluati
         print(f"GPU {gpu_id}: Judge Error: {e}")
         import traceback
         traceback.print_exc()
+        # Save partial results on error
+        if local_results:
+            print(f"GPU {gpu_id}: Saving {len(local_results)} partial results before exit...")
+            with open(worker_output_file, "w", encoding="utf-8") as f:
+                json.dump(local_results, f, ensure_ascii=False, indent=2)
 
 class TTAEvaluationPipeline:
     def __init__(self, config_path: str = "configs/config.yaml"):
@@ -531,13 +540,20 @@ class TTAEvaluationPipeline:
         # Merge results from all GPU files
         all_results = existing_results[:]
         print("Merging distributed results...")
+        found_files = 0
         for gpu_id in range(active_gpus):
             worker_file = os.path.join(self.responses_dir, f"generated_responses_gpu_{gpu_id}.json")
             if os.path.exists(worker_file):
                 with open(worker_file, "r", encoding="utf-8") as f:
                     worker_results = json.load(f)
+                    print(f"  GPU {gpu_id}: {len(worker_results)} results")
                     all_results.extend(worker_results)
-                # Optional: cleanup worker files? Better keep them for debug/backup
+                    found_files += 1
+            else:
+                print(f"  GPU {gpu_id}: No output file found (worker may have failed)")
+        
+        if found_files == 0:
+            print("WARNING: No worker produced any results!")
 
         # Sort by sample ID to maintain order consistency
         all_results.sort(key=lambda x: x['sample_id'])
@@ -604,12 +620,20 @@ class TTAEvaluationPipeline:
         # Merge results
         all_results = existing_results[:]
         print("Merging distributed evaluation results...")
+        found_files = 0
         for gpu_id in range(active_gpus):
             worker_file = os.path.join(self.evaluations_dir, f"evaluation_results_gpu_{gpu_id}.json")
             if os.path.exists(worker_file):
                 with open(worker_file, "r", encoding="utf-8") as f:
                     worker_results = json.load(f)
+                    print(f"  GPU {gpu_id}: {len(worker_results)} results")
                     all_results.extend(worker_results)
+                    found_files += 1
+            else:
+                print(f"  GPU {gpu_id}: No output file found (worker may have failed)")
+        
+        if found_files == 0:
+            print("WARNING: No worker produced any evaluation results!")
                     
         all_results.sort(key=lambda x: x['sample_id'])
 
