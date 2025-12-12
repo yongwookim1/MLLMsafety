@@ -21,6 +21,8 @@ def _generation_worker(gpu_id: int, config_path: str, samples: List[Dict], mappi
     try:
         print(f"GPU {gpu_id}: Starting generation for {len(samples)} samples...")
         
+        os.makedirs(output_dir, exist_ok=True)
+        
         # GPU assignment handled by device_map in model loading 
         device_map = {"": f"cuda:{gpu_id}"}
         worker_output_file = os.path.join(output_dir, f"generated_responses_gpu_{gpu_id}.json")
@@ -179,6 +181,8 @@ def _judge_worker(gpu_id: int, config_path: str, responses: List[Dict], evaluati
     """Worker function for distributed safety evaluation."""
     try:
         print(f"GPU {gpu_id}: Starting evaluation for {len(responses)} samples...")
+        
+        os.makedirs(evaluations_dir, exist_ok=True)
         
         # GPU assignment handled by device_map in model loading
         device_map = {"": f"cuda:{gpu_id}"}
