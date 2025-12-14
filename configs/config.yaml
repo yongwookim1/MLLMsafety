@@ -40,7 +40,7 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/qwen_images
+  output_dir: "./outputs/qwen_images"
   max_contexts: 10000
   num_inference_steps: 28
   true_cfg_scale: 4.0
