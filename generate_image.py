@@ -5,6 +5,12 @@ from diffusers import DiffusionPipeline
 from PIL import Image
 from typing import Optional
 
+try:
+    from diffusers import ZImagePipeline
+    ZIMAGE_AVAILABLE = True
+except ImportError:
+    ZIMAGE_AVAILABLE = False
+
 
 class QwenImageGenerator:
     """
@@ -212,6 +218,125 @@ class QwenImageGenerator:
         """
         image.save(output_path)
         print(f"Image saved to: {output_path}")
+
+
+class ZImageGenerator:
+    """Image generator using Z-Image-Turbo model (Tongyi-MAI)."""
+
+    def __init__(
+        self,
+        model_path: str = "./models_cache/z-image-turbo",
+        use_cuda: bool = True,
+        use_memory_efficient: bool = False
+    ):
+        if not ZIMAGE_AVAILABLE:
+            raise ImportError(
+                "ZImagePipeline not available. Install diffusers from source:\n"
+                "pip install git+https://github.com/huggingface/diffusers"
+            )
+        
+        self.model_path = os.path.abspath(model_path)
+        self.use_memory_efficient = use_memory_efficient
+        self.device = self._select_best_device() if use_cuda else "cpu"
+        self.torch_dtype = torch.bfloat16
+        self.pipeline = None
+        self._load_model()
+
+    def _select_best_device(self) -> str:
+        if not torch.cuda.is_available():
+            return "cpu"
+        try:
+            gpu_memory = [torch.cuda.mem_get_info(i)[0] for i in range(torch.cuda.device_count())]
+            best_gpu_id = gpu_memory.index(max(gpu_memory))
+            print(f"Selected GPU cuda:{best_gpu_id} with {max(gpu_memory) / (1024**3):.1f}GB free memory")
+            return f"cuda:{best_gpu_id}"
+        except Exception:
+            return "cuda:0"
+
+    def _load_model(self) -> None:
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                f"Model directory not found: {self.model_path}. "
+                "Please download the model first using:\n"
+                "  huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir ./models_cache/z-image-turbo"
+            )
+
+        print(f"Loading Z-Image-Turbo model from {self.model_path}...")
+
+        self.pipeline = ZImagePipeline.from_pretrained(
+            self.model_path,
+            torch_dtype=self.torch_dtype,
+            low_cpu_mem_usage=False,
+            local_files_only=True
+        )
+
+        if self.use_memory_efficient:
+            self.pipeline.enable_model_cpu_offload()
+        else:
+            self.pipeline.to(self.device)
+
+        print("Z-Image-Turbo model loaded successfully")
+
+    def generate(
+        self,
+        prompt: str,
+        negative_prompt: str = "",
+        width: int = 1024,
+        height: int = 1024,
+        num_inference_steps: int = 9,
+        guidance_scale: float = 0.0,
+        seed: Optional[int] = None,
+        **kwargs
+    ) -> Image.Image:
+        generator = None
+        if seed is not None:
+            generator = torch.Generator(self.device).manual_seed(seed)
+
+        result = self.pipeline(
+            prompt=prompt,
+            height=height,
+            width=width,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale,
+            generator=generator,
+        )
+        return result.images[0]
+
+    def generate_if_new(
+        self,
+        prompt: str,
+        output_dir: str,
+        filename_prefix: str = "",
+        **kwargs
+    ) -> Optional[str]:
+        prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+        filename = f"{filename_prefix}_{prompt_hash}.jpg" if filename_prefix else f"{prompt_hash}.jpg"
+        output_path = os.path.join(output_dir, filename)
+
+        if os.path.exists(output_path):
+            print(f"Skipping existing image: {prompt[:30]}...")
+            return None
+
+        print(f"Generating image: {prompt[:30]}...")
+        image = self.generate(prompt, **kwargs)
+        os.makedirs(output_dir, exist_ok=True)
+        self.save_image(image, output_path)
+        return output_path
+
+    def save_image(self, image: Image.Image, output_path: str) -> None:
+        image.save(output_path)
+        print(f"Image saved to: {output_path}")
+
+
+def get_image_generator(generator_type: str = "qwen-image", **kwargs):
+    """Factory function to create image generator based on type."""
+    generators = {
+        "qwen-image": QwenImageGenerator,
+        "z-image-turbo": ZImageGenerator,
+    }
+    if generator_type not in generators:
+        raise ValueError(f"Unknown generator type: {generator_type}. Available: {list(generators.keys())}")
+    return generators[generator_type](**kwargs)
 
 
 def main() -> None:

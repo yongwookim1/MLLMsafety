@@ -5,6 +5,12 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from typing import Optional
 import yaml
 
+try:
+    from diffusers import ZImagePipeline
+    ZIMAGE_AVAILABLE = True
+except ImportError:
+    ZIMAGE_AVAILABLE = False
+
 
 class ImageGenerator:
     """
@@ -56,10 +62,12 @@ class ImageGenerator:
         """
         Load the appropriate model based on configuration.
 
-        Routes to either Qwen or Kimchi model loading.
+        Routes to Qwen, Kimchi, or Z-Image-Turbo model loading.
         """
         if self.model_type == "kimchi":
             self._load_kimchi_model()
+        elif self.model_type == "z-image-turbo":
+            self._load_zimage_model()
         else:
             self._load_qwen_model()
     
@@ -95,6 +103,44 @@ class ImageGenerator:
             self.pipeline.enable_attention_slicing(2)
 
         print("Qwen model loaded successfully")
+
+    def _load_zimage_model(self) -> None:
+        """
+        Load the Z-Image-Turbo model (Tongyi-MAI).
+
+        Raises:
+            ImportError: If ZImagePipeline is not available
+            FileNotFoundError: If model directory doesn't exist
+        """
+        if not ZIMAGE_AVAILABLE:
+            raise ImportError(
+                "ZImagePipeline not available. Install diffusers from source:\n"
+                "pip install git+https://github.com/huggingface/diffusers"
+            )
+
+        model_path = self.model_config.get("z_image_local_path", "./models_cache/z-image-turbo")
+        print(f"Loading Z-Image-Turbo model from {model_path}...")
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"Z-Image-Turbo model not found at {model_path}. "
+                "Please download the model first using:\n"
+                "  huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir ./models_cache/z-image-turbo"
+            )
+
+        self.pipeline = ZImagePipeline.from_pretrained(
+            model_path,
+            torch_dtype=self.torch_dtype,
+            low_cpu_mem_usage=False,
+            local_files_only=True
+        )
+
+        if self.model_config.get("use_memory_efficient", False):
+            self.pipeline.enable_model_cpu_offload()
+        else:
+            self.pipeline = self.pipeline.to(self.device)
+
+        print("Z-Image-Turbo model loaded successfully")
 
     def _apply_memory_optimizations(self) -> None:
         """Apply aggressive memory-saving optimizations for lower-end GPUs."""
@@ -222,6 +268,8 @@ class ImageGenerator:
         try:
             if self.model_type == "kimchi":
                 image = self._generate_with_kimchi_model(prompt, device_type)
+            elif self.model_type == "z-image-turbo":
+                image = self._generate_with_zimage_model(prompt, width, height, generator)
             else:
                 image = self._generate_with_qwen_model(
                     prompt, negative_prompt, width, height, generator, device_type
@@ -289,6 +337,27 @@ class ImageGenerator:
 
         if not hasattr(result, 'images') or len(result.images) == 0:
             raise ValueError(f"Qwen model pipeline returned no images (result type: {type(result)})")
+
+        return result.images[0]
+
+    def _generate_with_zimage_model(self, prompt: str, width: int, height: int, generator):
+        """Generate image using the Z-Image-Turbo model."""
+        z_width = self.gen_config.get("z_image_width", 1024)
+        z_height = self.gen_config.get("z_image_height", 1024)
+        z_steps = self.gen_config.get("z_image_num_inference_steps", 9)
+        z_guidance = self.gen_config.get("z_image_guidance_scale", 0.0)
+
+        result = self.pipeline(
+            prompt=prompt,
+            height=z_height,
+            width=z_width,
+            num_inference_steps=z_steps,
+            guidance_scale=z_guidance,
+            generator=generator,
+        )
+
+        if not hasattr(result, 'images') or len(result.images) == 0:
+            raise ValueError("Z-Image-Turbo pipeline returned no images")
 
         return result.images[0]
 

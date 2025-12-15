@@ -1,12 +1,15 @@
 # Model paths
 models:
   image_generator:
-    type: "qwen-image"  # "qwen-image" or "kimchi"
+    type: "z-image-turbo"  # "qwen-image", "kimchi", or "z-image-turbo"
     # Qwen-Image settings
     name: "Qwen/Qwen-Image"
     local_path: "./models_cache/qwen-image"
     torch_dtype: "bfloat16"
     use_memory_efficient: false
+    # Z-Image-Turbo settings (when type: "z-image-turbo")
+    z_image_name: "Tongyi-MAI/Z-Image-Turbo"
+    z_image_local_path: "./models_cache/Z-Image-Turbo"
     # Kimchi settings (when type: "kimchi")
     pretrained_model_path: "./models_cache/stable-diffusion-v1-5"  # Stable Diffusion v1.5 local path (required)
     clip_model_path: "./models_cache/clip-vit-large-patch14-ko"  # Korean CLIP model local path (required)
@@ -40,13 +43,19 @@ dataset:
 
 # Image generation settings
 image_generation:
-  output_dir: "./outputs/qwen_images"
+  output_dir: "./outputs/tta_images"
   max_contexts: 10000
+  # Qwen-Image settings
   num_inference_steps: 28
   true_cfg_scale: 4.0
   width: 512
   height: 512
   aspect_ratio: "1:1"
+  # Z-Image-Turbo settings (overrides above when using z-image-turbo)
+  z_image_num_inference_steps: 9  # Results in 8 DiT forwards
+  z_image_guidance_scale: 0.0     # Must be 0 for Turbo models
+  z_image_width: 1024
+  z_image_height: 1024
 
 # Evaluation settings
 evaluation:
