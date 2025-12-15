@@ -1,15 +1,37 @@
 import os
 import torch
+import torch.distributed as dist
 import hashlib
 from diffusers import DiffusionPipeline
 from PIL import Image
-from typing import Optional
+from typing import Optional, List, Union
 
 try:
     from diffusers import ZImagePipeline
     ZIMAGE_AVAILABLE = True
 except ImportError:
     ZIMAGE_AVAILABLE = False
+
+
+def setup_distributed():
+    """Initialize distributed environment if not already initialized."""
+    if dist.is_initialized():
+        return dist.get_rank(), dist.get_world_size()
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+        return rank, world_size
+    return 0, 1
+
+
+def is_main_process():
+    """Check if current process is the main process."""
+    if dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
 
 
 class QwenImageGenerator:
@@ -221,13 +243,14 @@ class QwenImageGenerator:
 
 
 class ZImageGenerator:
-    """Image generator using Z-Image-Turbo model (Tongyi-MAI)."""
+    """Image generator using Z-Image-Turbo model with batch and distributed support."""
 
     def __init__(
         self,
         model_path: str = "./models_cache/z-image-turbo",
         use_cuda: bool = True,
-        use_memory_efficient: bool = False
+        use_memory_efficient: bool = False,
+        use_distributed: bool = False
     ):
         if not ZIMAGE_AVAILABLE:
             raise ImportError(
@@ -237,9 +260,17 @@ class ZImageGenerator:
         
         self.model_path = os.path.abspath(model_path)
         self.use_memory_efficient = use_memory_efficient
-        self.device = self._select_best_device() if use_cuda else "cpu"
+        self.use_distributed = use_distributed
         self.torch_dtype = torch.bfloat16
         self.pipeline = None
+        
+        if use_distributed:
+            self.rank, self.world_size = setup_distributed()
+            self.device = f"cuda:{self.rank % torch.cuda.device_count()}"
+        else:
+            self.rank, self.world_size = 0, 1
+            self.device = self._select_best_device() if use_cuda else "cpu"
+        
         self._load_model()
 
     def _select_best_device(self) -> str:
@@ -248,7 +279,8 @@ class ZImageGenerator:
         try:
             gpu_memory = [torch.cuda.mem_get_info(i)[0] for i in range(torch.cuda.device_count())]
             best_gpu_id = gpu_memory.index(max(gpu_memory))
-            print(f"Selected GPU cuda:{best_gpu_id} with {max(gpu_memory) / (1024**3):.1f}GB free memory")
+            if is_main_process():
+                print(f"Selected GPU cuda:{best_gpu_id} with {max(gpu_memory) / (1024**3):.1f}GB free memory")
             return f"cuda:{best_gpu_id}"
         except Exception:
             return "cuda:0"
@@ -261,7 +293,8 @@ class ZImageGenerator:
                 "  huggingface-cli download Tongyi-MAI/Z-Image-Turbo --local-dir ./models_cache/z-image-turbo"
             )
 
-        print(f"Loading Z-Image-Turbo model from {self.model_path}...")
+        if is_main_process():
+            print(f"Loading Z-Image-Turbo model from {self.model_path}...")
 
         self.pipeline = ZImagePipeline.from_pretrained(
             self.model_path,
@@ -275,19 +308,21 @@ class ZImageGenerator:
         else:
             self.pipeline.to(self.device)
 
-        print("Z-Image-Turbo model loaded successfully")
+        if is_main_process():
+            print("Z-Image-Turbo model loaded successfully")
 
     def generate(
         self,
-        prompt: str,
+        prompt: Union[str, List[str]],
         negative_prompt: str = "",
-        width: int = 1024,
-        height: int = 1024,
+        width: int = 512,
+        height: int = 512,
         num_inference_steps: int = 9,
         guidance_scale: float = 0.0,
         seed: Optional[int] = None,
         **kwargs
-    ) -> Image.Image:
+    ) -> Union[Image.Image, List[Image.Image]]:
+        """Generate image(s) from prompt(s). Supports both single and batch."""
         generator = None
         if seed is not None:
             generator = torch.Generator(self.device).manual_seed(seed)
@@ -300,7 +335,45 @@ class ZImageGenerator:
             guidance_scale=guidance_scale,
             generator=generator,
         )
-        return result.images[0]
+        
+        if isinstance(prompt, str):
+            return result.images[0]
+        return result.images
+
+    def generate_batch(
+        self,
+        prompts: List[str],
+        batch_size: int = 8,
+        **kwargs
+    ) -> List[Image.Image]:
+        """Generate images in batches."""
+        all_images = []
+        for i in range(0, len(prompts), batch_size):
+            batch_prompts = prompts[i:i + batch_size]
+            images = self.generate(batch_prompts, **kwargs)
+            if isinstance(images, Image.Image):
+                images = [images]
+            all_images.extend(images)
+        return all_images
+
+    def generate_distributed(
+        self,
+        prompts: List[str],
+        batch_size: int = 8,
+        **kwargs
+    ) -> List[Image.Image]:
+        """Generate images with distributed processing across multiple GPUs."""
+        # Split prompts across ranks
+        prompts_per_rank = len(prompts) // self.world_size
+        start_idx = self.rank * prompts_per_rank
+        end_idx = start_idx + prompts_per_rank if self.rank < self.world_size - 1 else len(prompts)
+        local_prompts = prompts[start_idx:end_idx]
+        
+        if is_main_process():
+            print(f"Rank {self.rank}: processing {len(local_prompts)} prompts")
+        
+        local_images = self.generate_batch(local_prompts, batch_size=batch_size, **kwargs)
+        return local_images
 
     def generate_if_new(
         self,
@@ -314,18 +387,68 @@ class ZImageGenerator:
         output_path = os.path.join(output_dir, filename)
 
         if os.path.exists(output_path):
-            print(f"Skipping existing image: {prompt[:30]}...")
+            if is_main_process():
+                print(f"Skipping existing image: {prompt[:30]}...")
             return None
 
-        print(f"Generating image: {prompt[:30]}...")
+        if is_main_process():
+            print(f"Generating image: {prompt[:30]}...")
         image = self.generate(prompt, **kwargs)
         os.makedirs(output_dir, exist_ok=True)
         self.save_image(image, output_path)
         return output_path
 
+    def generate_batch_if_new(
+        self,
+        prompts: List[str],
+        output_dir: str,
+        filename_prefix: str = "",
+        batch_size: int = 8,
+        **kwargs
+    ) -> List[str]:
+        """Generate multiple images, skipping existing ones. Supports distributed."""
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Filter out existing images
+        prompts_to_generate = []
+        output_paths = []
+        for prompt in prompts:
+            prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+            filename = f"{filename_prefix}_{prompt_hash}.jpg" if filename_prefix else f"{prompt_hash}.jpg"
+            output_path = os.path.join(output_dir, filename)
+            if not os.path.exists(output_path):
+                prompts_to_generate.append(prompt)
+                output_paths.append(output_path)
+        
+        if not prompts_to_generate:
+            if is_main_process():
+                print("All images already exist, skipping generation")
+            return []
+        
+        if is_main_process():
+            print(f"Generating {len(prompts_to_generate)} new images...")
+        
+        if self.use_distributed and self.world_size > 1:
+            local_prompts_idx = list(range(self.rank, len(prompts_to_generate), self.world_size))
+            local_prompts = [prompts_to_generate[i] for i in local_prompts_idx]
+            local_paths = [output_paths[i] for i in local_prompts_idx]
+            images = self.generate_batch(local_prompts, batch_size=batch_size, **kwargs)
+        else:
+            local_paths = output_paths
+            images = self.generate_batch(prompts_to_generate, batch_size=batch_size, **kwargs)
+        
+        for img, path in zip(images, local_paths):
+            img.save(path)
+        
+        if self.use_distributed:
+            dist.barrier()
+        
+        return output_paths
+
     def save_image(self, image: Image.Image, output_path: str) -> None:
         image.save(output_path)
-        print(f"Image saved to: {output_path}")
+        if is_main_process():
+            print(f"Image saved to: {output_path}")
 
 
 def get_image_generator(generator_type: str = "qwen-image", **kwargs):
