@@ -54,8 +54,8 @@ image_generation:
   # Z-Image-Turbo settings (overrides above when using z-image-turbo)
   z_image_num_inference_steps: 9  # Results in 8 DiT forwards
   z_image_guidance_scale: 0.0     # Must be 0 for Turbo models
-  z_image_width: 1024
-  z_image_height: 1024
+  z_image_width: 512
+  z_image_height: 512
 
 # Evaluation settings
 evaluation:
