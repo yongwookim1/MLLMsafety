@@ -932,21 +932,19 @@ class TTAEvaluationPipeline:
         self._create_category_analysis_report(results)
 
     def _save_category_summary(self, results: List[Dict]):
+        def create_eval_type_stats():
+            return {"modalities": defaultdict(int), "risk_categories": defaultdict(int), "scores": []}
         def create_modality_stats():
             return {"total": 0, "risk_categories": defaultdict(int), "scores": []}
         def create_risk_stats():
             return {"total": 0, "modalities": defaultdict(int), "scores": []}
 
         summary = {
-            "overall": {
-                "total_samples": len(results),
-                "modalities": defaultdict(int),
-                "risk_categories": defaultdict(int),
-                "scores": []
-            },
-            "by_modality": defaultdict(create_modality_stats),
-            "by_risk_category": defaultdict(create_risk_stats)
+            "overall": defaultdict(create_eval_type_stats),
+            "by_modality": defaultdict(lambda: defaultdict(create_modality_stats)),
+            "by_risk_category": defaultdict(lambda: defaultdict(create_risk_stats))
         }
+        summary["overall"]["total_samples"] = len(results)
 
         for result in results:
             modality = result.get('modality', 'unknown')
